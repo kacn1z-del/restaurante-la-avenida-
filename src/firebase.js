@@ -1,5 +1,4 @@
 import { initializeApp } from "firebase/app";
-import { initializeFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -13,10 +12,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Fuerza long polling en vez de WebChannel: en algunas redes móviles y en
-// Safari de iPhone el canal normal de Firestore no conecta y las lecturas se quedan colgadas.
-export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
-});
-
+// Solo Auth usa el SDK. Los datos se leen y escriben por la API HTTP de Firestore
+// (ver src/lib/api.js), porque el canal del SDK no conecta desde este dispositivo.
 export const auth = getAuth(app);
