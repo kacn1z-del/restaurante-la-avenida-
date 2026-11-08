@@ -12,6 +12,7 @@ import Compras from "./pages/Compras.jsx";
 import Resumen from "./pages/Resumen.jsx";
 import Pedidos from "./pages/Pedidos.jsx";
 import Personal from "./pages/Personal.jsx";
+import Listados from "./pages/Listados.jsx";
 
 const VISTAS = {
   resumen: { label: "Resumen", icono: "◔", roles: [ROL.ADMIN] },
@@ -21,6 +22,7 @@ const VISTAS = {
   caja: { label: "Caja", icono: "₡", roles: [ROL.ADMIN, ROL.CAJA] },
   productos: { label: "Menú", icono: "🍽", roles: [ROL.ADMIN] },
   compras: { label: "Compras", icono: "🧾", roles: [ROL.ADMIN] },
+  listados: { label: "Listados", icono: "▤", roles: [ROL.ADMIN] },
   personal: { label: "Personal", icono: "🔑", roles: [ROL.ADMIN, ROL.MESERO, ROL.COCINA, ROL.BARRA, ROL.CAJA] },
 };
 
@@ -219,6 +221,7 @@ export default function App() {
           {vistaActual === "productos" && <Productos />}
           {vistaActual === "compras" && <Compras staff={staff} />}
           {vistaActual === "personal" && <Personal staff={staff} />}
+          {vistaActual === "listados" && <Listados />}
         </div>
       </main>
     </div>
