@@ -1,17 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
-  addDoc,
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  updateDoc,
-  writeBatch,
-} from "firebase/firestore";
-import { db } from "../firebase.js";
+  actualizar,
+  ahora,
+  borrar,
+  confirmar,
+  consultar,
+  crear,
+  nuevoIdDoc,
+  usePolling,
+} from "../lib/api.js";
 import { ESTADO_MESA, TIPO_PRODUCTO, ZONA } from "../lib/constants.js";
 import { colones } from "../lib/format.js";
 
@@ -31,9 +28,6 @@ const FORM_VACIO = {
 };
 
 export default function Productos() {
-  const [productos, setProductos] = useState([]);
-  const [salones, setSalones] = useState([]);
-  const [observaciones, setObservaciones] = useState([]);
   const [form, setForm] = useState(FORM_VACIO);
   const [editandoId, setEditandoId] = useState(null);
   const [nuevoSalon, setNuevoSalon] = useState("");
@@ -43,29 +37,19 @@ export default function Productos() {
   const [nuevaObs, setNuevaObs] = useState("");
   const [msg, setMsg] = useState("");
 
-  useEffect(
-    () =>
-      onSnapshot(query(collection(db, "productos"), orderBy("posicion")), (snap) => {
-        setProductos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }),
-    []
-  );
+  const productosQ = usePolling(() => consultar("productos", { orden: [["posicion"]] }), [], 15000);
+  const salonesQ = usePolling(() => consultar("salones", { orden: [["orden"]] }), [], 15000);
+  const obsQ = usePolling(() => consultar("observaciones"), [], 15000);
 
-  useEffect(
-    () =>
-      onSnapshot(query(collection(db, "salones"), orderBy("orden")), (snap) => {
-        setSalones(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }),
-    []
-  );
+  const productos = productosQ.datos || [];
+  const salones = salonesQ.datos || [];
+  const observaciones = obsQ.datos || [];
 
-  useEffect(
-    () =>
-      onSnapshot(collection(db, "observaciones"), (snap) => {
-        setObservaciones(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }),
-    []
-  );
+  function recargarTodo() {
+    productosQ.recargar();
+    salonesQ.recargar();
+    obsQ.recargar();
+  }
 
   const ingredientes = productos.filter((p) => p.tipo === TIPO_PRODUCTO.INGREDIENTE);
 
@@ -129,29 +113,44 @@ export default function Productos() {
     };
     try {
       if (editandoId) {
-        await updateDoc(doc(db, "productos", editandoId), data);
+        await confirmar([actualizar("productos", editandoId, data)]);
       } else {
-        await addDoc(collection(db, "productos"), { ...data, activo: true, creadoEn: serverTimestamp() });
+        await confirmar([
+          crear("productos", nuevoIdDoc(), { ...data, activo: true, creadoEn: ahora() }),
+        ]);
       }
       setMsg("Producto guardado.");
       limpiar();
+      recargarTodo();
     } catch (err) {
       setMsg("Error: " + err.message);
     }
   }
 
   async function toggleActivo(p) {
-    await updateDoc(doc(db, "productos", p.id), { activo: !(p.activo !== false) });
+    try {
+      await confirmar([actualizar("productos", p.id, { activo: !(p.activo !== false) })]);
+      productosQ.recargar();
+    } catch (err) {
+      setMsg("Error: " + err.message);
+    }
   }
 
   async function crearSalon(e) {
     e.preventDefault();
     if (!nuevoSalon.trim()) return;
-    await addDoc(collection(db, "salones"), {
-      nombre: nuevoSalon.trim(),
-      orden: salones.length + 1,
-    });
-    setNuevoSalon("");
+    try {
+      await confirmar([
+        crear("salones", nuevoIdDoc(), {
+          nombre: nuevoSalon.trim(),
+          orden: salones.length + 1,
+        }),
+      ]);
+      setNuevoSalon("");
+      salonesQ.recargar();
+    } catch (err) {
+      setMsg("Error: " + err.message);
+    }
   }
 
   async function crearMesas(e) {
@@ -161,28 +160,44 @@ export default function Productos() {
       setMsg("Elegí un salón.");
       return;
     }
-    const batch = writeBatch(db);
+    const escrituras = [];
     for (let i = 0; i < Number(cantMesas); i++) {
-      batch.set(doc(collection(db, "mesas")), {
-        numero: Number(inicioMesa) + i,
-        salonId: salonElegido,
-        estado: ESTADO_MESA.LIBRE,
-        pedidoActivoId: null,
-      });
+      escrituras.push(
+        crear("mesas", nuevoIdDoc(), {
+          numero: Number(inicioMesa) + i,
+          salonId: salonElegido,
+          estado: ESTADO_MESA.LIBRE,
+          pedidoActivoId: null,
+        })
+      );
     }
-    await batch.commit();
-    setMsg(`Se crearon ${cantMesas} mesas.`);
+    try {
+      await confirmar(escrituras);
+      setMsg(`Se crearon ${cantMesas} mesas.`);
+    } catch (err) {
+      setMsg("Error: " + err.message);
+    }
   }
 
   async function agregarObs(e) {
     e.preventDefault();
     if (!nuevaObs.trim()) return;
-    await addDoc(collection(db, "observaciones"), { texto: nuevaObs.trim() });
-    setNuevaObs("");
+    try {
+      await confirmar([crear("observaciones", nuevoIdDoc(), { texto: nuevaObs.trim() })]);
+      setNuevaObs("");
+      obsQ.recargar();
+    } catch (err) {
+      setMsg("Error: " + err.message);
+    }
   }
 
   async function borrarObs(id) {
-    await deleteDoc(doc(db, "observaciones", id));
+    try {
+      await confirmar([borrar("observaciones", id)]);
+      obsQ.recargar();
+    } catch (err) {
+      setMsg("Error: " + err.message);
+    }
   }
 
   return (
