@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { actualizar, ahora, confirmar, consultar, crear, nuevoIdDoc, usePolling } from "../lib/api.js";
-import { horaCorta } from "../lib/format.js";
+import { enlaceWhatsapp, horaCorta } from "../lib/format.js";
+import { useNegocio } from "../lib/negocio.js";
 
 const FORM_VACIO = { nombre: "", telefono: "", personas: "2", fechaHora: "", mesaId: "", notas: "" };
 
-// Muestra reservas activas (desde 3 horas atrás) y permite crear o cancelar
+// Muestra reservas activas (desde 3 horas atrás) y permite crear, confirmar por WhatsApp o cancelar
 export default function Reservas({ mesas, onCerrar }) {
   const [form, setForm] = useState(FORM_VACIO);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const negocio = useNegocio();
 
   const reservasQ = usePolling(
     () => consultar("reservas", { where: [["estado", "==", "activa"]] }),
@@ -23,6 +25,17 @@ export default function Reservas({ mesas, onCerrar }) {
 
   function cambiar(campo, valor) {
     setForm((f) => ({ ...f, [campo]: valor }));
+  }
+
+  function mensajeConfirmacion(r) {
+    const fecha = r.fechaHora.toLocaleDateString("es-CR");
+    const hora = horaCorta(r.fechaHora);
+    return (
+      `Hola ${r.nombre}, confirmamos su reserva en ${negocio.nombre} ` +
+      `para ${r.personas} persona(s) el ${fecha} a las ${hora}.` +
+      (r.mesaNumero ? ` Su mesa es la ${r.mesaNumero}.` : "") +
+      ` ¡Lo esperamos!`
+    );
   }
 
   async function guardar() {
@@ -89,6 +102,14 @@ export default function Reservas({ mesas, onCerrar }) {
               {r.notas ? ` · ${r.notas}` : ""}
             </small>
             <div className="item-acciones">
+              <a
+                className="btn"
+                href={enlaceWhatsapp(r.telefono, mensajeConfirmacion(r))}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                WhatsApp
+              </a>
               <button className="btn peligro" onClick={() => cancelar(r)}>Cancelar reserva</button>
             </div>
           </div>
