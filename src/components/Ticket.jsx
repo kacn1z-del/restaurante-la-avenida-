@@ -35,7 +35,7 @@ function nombreMetodo(id) {
   return METODOS_PAGO.find((m) => m.id === id)?.label || id;
 }
 
-export default function Ticket({ pedido, pagos, fecha, onCerrar }) {
+export default function Ticket({ pedido, pagos = [], fecha, onCerrar, precuenta = false }) {
   const items = pedido.items || [];
   const total = Math.round(Number(pedido.total) || 0);
 
@@ -45,7 +45,8 @@ export default function Ticket({ pedido, pagos, fecha, onCerrar }) {
         <style>{ESTILOS}</style>
 
         <div className="ticket-imprimible">
-          <div className="centro"><strong>RESTAURANTE LA AVENIDA</strong></div>
+          <div className="centro"><strong>{precuenta ? "PRECUENTA" : "RESTAURANTE LA AVENIDA"}</strong></div>
+          {precuenta && <div className="centro">No es factura</div>}
           <div className="centro">
             Mesa {pedido.mesaNumero} · {fecha.toLocaleString("es-CR")}
           </div>
@@ -75,7 +76,7 @@ export default function Ticket({ pedido, pagos, fecha, onCerrar }) {
                 <td><strong>TOTAL</strong></td>
                 <td className="r"><strong>{colones(total)}</strong></td>
               </tr>
-              {pagos.map((p, idx) => (
+              {!precuenta && pagos.map((p, idx) => (
                 <tr key={idx}>
                   <td>{nombreMetodo(p.metodo)}</td>
                   <td className="r">{colones(p.monto)}</td>
