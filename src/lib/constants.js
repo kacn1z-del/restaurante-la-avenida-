@@ -39,7 +39,7 @@ export const METODOS_PAGO = [
 ];
 
 // Denominaciones de colones usadas en el conteo de cierre de caja
-export const DENOMINACIONES_CRC = [50000, 20000, 10000, 5000, 2000, 1000, 500, 100, 50, 25, 10, 5];
+export const DENOMINACIONES_CRC = [20000, 10000, 5000, 2000, 1000, 500, 100, 50, 25, 10];
 
 // Tarifa de impuesto Hacienda CR (código 08 = general 13%)
 export const TARIFA_IVA = { codigo: "08", porcentaje: 13 };
@@ -63,7 +63,7 @@ export const COLORES_PRODUCTO = [
 
 // Denominaciones por moneda para el conteo de caja
 export const DENOMINACIONES = {
-  CRC: [50000, 20000, 10000, 5000, 2000, 1000, 500, 100, 50, 25, 10, 5],
+  CRC: [20000, 10000, 5000, 2000, 1000, 500, 100, 50, 25, 10],
   USD: [100, 50, 20, 10, 5, 1, 0.5, 0.25, 0.1, 0.05, 0.01],
   EUR: [500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01],
 };
