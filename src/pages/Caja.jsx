@@ -1,53 +1,41 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  addDoc,
-  collection,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
-import { db } from "../firebase.js";
+import { ahora, confirmar, consultar, crear, nuevoIdDoc, usePolling } from "../lib/api.js";
 import { DENOMINACIONES_CRC, ESTADO_PEDIDO, METODOS_PAGO } from "../lib/constants.js";
 import { colones, inicioDelDia } from "../lib/format.js";
 
 export default function Caja({ staff }) {
-  const [pedidos, setPedidos] = useState([]);
   const [desde, setDesde] = useState(inicioDelDia());
   const [conteo, setConteo] = useState({});
   const [mensaje, setMensaje] = useState("");
   const [guardando, setGuardando] = useState(false);
 
   // El turno empieza en el último cierre (o en el inicio del día si no hay)
-  useEffect(
-    () =>
-      onSnapshot(query(collection(db, "cierres"), orderBy("fecha", "desc"), limit(1)), (snap) => {
-        const fecha = snap.docs[0]?.data().fecha;
-        setDesde(fecha?.toDate ? fecha.toDate() : inicioDelDia());
-      }),
-    []
+  const cierreQ = usePolling(
+    () => consultar("cierres", { orden: [["fecha", "desc"]], limite: 1 }),
+    [],
+    20000
   );
+  const fechaUltimoCierre = cierreQ.datos?.[0]?.fecha;
+  const claveCierre = fechaUltimoCierre instanceof Date ? fechaUltimoCierre.getTime() : 0;
 
-  useEffect(
-    () =>
-      onSnapshot(
-        query(collection(db, "pedidos"), where("estado", "==", ESTADO_PEDIDO.COBRADO)),
-        (snap) => {
-          setPedidos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-        }
-      ),
-    []
+  useEffect(() => {
+    setDesde(claveCierre ? new Date(claveCierre) : inicioDelDia());
+  }, [claveCierre]);
+
+  // Solo pedidos cobrados desde el inicio del turno
+  const pedidosQ = usePolling(
+    () => consultar("pedidos", { where: [["cobradoEn", ">=", desde]] }),
+    [desde.getTime()],
+    20000
   );
 
   const resumen = useMemo(() => {
     const porMetodo = Object.fromEntries(METODOS_PAGO.map((m) => [m.id, 0]));
     let totalVentas = 0;
     let cantidad = 0;
-    for (const p of pedidos) {
-      const fecha = p.cobradoEn?.toDate ? p.cobradoEn.toDate() : null;
-      if (!fecha || fecha < desde) continue;
+    for (const p of pedidosQ.datos || []) {
+      const fecha = p.cobradoEn instanceof Date ? p.cobradoEn : null;
+      if (p.estado !== ESTADO_PEDIDO.COBRADO || !fecha || fecha < desde) continue;
       cantidad += 1;
       totalVentas += Number(p.total) || 0;
       for (const pg of p.pagos || []) {
@@ -55,7 +43,7 @@ export default function Caja({ staff }) {
       }
     }
     return { porMetodo, totalVentas, cantidad };
-  }, [pedidos, desde]);
+  }, [pedidosQ.datos, desde]);
 
   const totalContado = DENOMINACIONES_CRC.reduce(
     (s, d) => s + d * (Number(conteo[d]) || 0),
@@ -69,20 +57,25 @@ export default function Caja({ staff }) {
     setGuardando(true);
     setMensaje("");
     try {
-      await addDoc(collection(db, "cierres"), {
-        fecha: serverTimestamp(),
-        empleadoUid: staff.uid,
-        empleadoNombre: staff.nombre || "",
-        conteo: Object.fromEntries(DENOMINACIONES_CRC.map((d) => [String(d), Number(conteo[d]) || 0])),
-        totalContado,
-        esperadoEfectivo,
-        diferencia,
-        totalVentas: resumen.totalVentas,
-        porMetodo: resumen.porMetodo,
-        cantidadPedidos: resumen.cantidad,
-      });
+      await confirmar([
+        crear("cierres", nuevoIdDoc(), {
+          fecha: ahora(),
+          empleadoUid: staff.uid,
+          empleadoNombre: staff.nombre || "",
+          conteo: Object.fromEntries(
+            DENOMINACIONES_CRC.map((d) => [String(d), Number(conteo[d]) || 0])
+          ),
+          totalContado,
+          esperadoEfectivo,
+          diferencia,
+          totalVentas: resumen.totalVentas,
+          porMetodo: resumen.porMetodo,
+          cantidadPedidos: resumen.cantidad,
+        }),
+      ]);
       setConteo({});
       setMensaje("Caja cerrada.");
+      cierreQ.recargar();
     } catch (e) {
       setMensaje("Error: " + e.message);
     } finally {
