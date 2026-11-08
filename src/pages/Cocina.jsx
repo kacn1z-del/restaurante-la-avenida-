@@ -1,56 +1,53 @@
-import { useEffect, useState } from "react";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  query,
-  runTransaction,
-  where,
-} from "firebase/firestore";
-import { db } from "../firebase.js";
+import { useState } from "react";
+import { actualizar, confirmar, consultar, leerDoc, usePolling } from "../lib/api.js";
 import { ESTADO_PEDIDO } from "../lib/constants.js";
 import { horaCorta } from "../lib/format.js";
 
+const tiempo = (fecha) => (fecha instanceof Date ? fecha.getTime() : 0);
+
 export default function Cocina({ zonas }) {
-  const [pedidos, setPedidos] = useState([]);
   const [error, setError] = useState("");
 
-  useEffect(
-    () =>
-      onSnapshot(
-        query(collection(db, "pedidos"), where("estado", "==", ESTADO_PEDIDO.EN_COCINA)),
-        (snap) => {
-          const lista = snap.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .sort((a, b) => (a.creadoEn?.seconds || 0) - (b.creadoEn?.seconds || 0));
-          setPedidos(lista);
-        }
-      ),
-    []
+  const pedidosQ = usePolling(
+    () => consultar("pedidos", { where: [["estado", "==", ESTADO_PEDIDO.EN_COCINA]] }),
+    [],
+    4000
   );
 
+  const pedidos = [...(pedidosQ.datos || [])].sort(
+    (a, b) => tiempo(a.creadoEn) - tiempo(b.creadoEn)
+  );
+
+  // Equivale a una transacción: si otro dispositivo cambió el pedido mientras tanto,
+  // el servidor rechaza la escritura y se vuelve a leer y reintentar.
   async function marcarListo(pedidoId, itemId) {
     setError("");
-    try {
-      await runTransaction(db, async (tx) => {
-        const ref = doc(db, "pedidos", pedidoId);
-        const snap = await tx.get(ref);
-        if (!snap.exists()) return;
+    for (let intento = 0; intento < 3; intento++) {
+      try {
+        const actual = await leerDoc("pedidos", pedidoId);
+        if (!actual) return;
 
-        const items = (snap.data().items || []).map((i) =>
+        const items = (actual.items || []).map((i) =>
           i.id === itemId ? { ...i, listo: true } : i
         );
-        const data = { items };
+        const datos = { items };
 
         // El pedido pasa a "listo" cuando todos los platos enviados están listos
-        const todoListo = items.filter((i) => i.enviado).every((i) => i.listo);
-        if (todoListo) data.estado = ESTADO_PEDIDO.LISTO;
+        if (items.filter((i) => i.enviado).every((i) => i.listo)) {
+          datos.estado = ESTADO_PEDIDO.LISTO;
+        }
 
-        tx.update(ref, data);
-      });
-    } catch (e) {
-      setError("No se pudo marcar: " + e.message);
+        await confirmar([actualizar("pedidos", pedidoId, datos, { version: actual._version })]);
+        pedidosQ.recargar();
+        return;
+      } catch (e) {
+        if (e.code !== "FAILED_PRECONDITION") {
+          setError("No se pudo marcar: " + e.message);
+          return;
+        }
+      }
     }
+    setError("Otro cambio se hizo al mismo tiempo. Tocá de nuevo.");
   }
 
   const visibles = pedidos
