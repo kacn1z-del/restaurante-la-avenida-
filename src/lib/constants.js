@@ -6,10 +6,9 @@ export const ESTADO_MESA = {
 };
 
 export const ESTADO_PEDIDO = {
-  PENDIENTE: "pendiente",
-  EN_PREPARACION: "en_preparacion",
+  ABIERTO: "abierto",
+  EN_COCINA: "en_cocina",
   LISTO: "listo",
-  ENTREGADO: "entregado",
   COBRADO: "cobrado",
   ANULADO: "anulado",
 };
@@ -33,7 +32,11 @@ export const ROL = {
   CAJA: "caja",
 };
 
-export const METODOS_PAGO = ["efectivo", "tarjeta", "sinpe"];
+export const METODOS_PAGO = [
+  { id: "efectivo", label: "Efectivo" },
+  { id: "tarjeta", label: "Tarjeta" },
+  { id: "sinpe", label: "SINPE Móvil" },
+];
 
 // Denominaciones de colones usadas en el conteo de cierre de caja
 export const DENOMINACIONES_CRC = [50000, 20000, 10000, 5000, 2000, 1000, 500, 100, 50, 25, 10, 5];
