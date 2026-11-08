@@ -2,9 +2,10 @@ export function colones(valor) {
   return "₡" + Math.round(Number(valor) || 0).toLocaleString("es-CR");
 }
 
-export function horaCorta(ts) {
-  const fecha = ts?.toDate ? ts.toDate() : null;
-  return fecha ? fecha.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" }) : "";
+export function horaCorta(fecha) {
+  return fecha instanceof Date
+    ? fecha.toLocaleTimeString("es-CR", { hour: "2-digit", minute: "2-digit" })
+    : "";
 }
 
 export function inicioDelDia() {
