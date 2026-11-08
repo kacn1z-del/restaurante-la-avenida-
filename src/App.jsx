@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, onSnapshot } from "firebase/firestore";
-import { auth, db } from "./firebase.js";
+import { auth } from "./firebase.js";
 import { ROL } from "./lib/constants.js";
+import { leerDoc, usePolling } from "./lib/api.js";
 import Salon from "./pages/Salon.jsx";
 import Comanda from "./pages/Comanda.jsx";
 import Cocina from "./pages/Cocina.jsx";
@@ -22,8 +22,6 @@ const ZONAS_POR_ROL = {
   [ROL.BARRA]: ["barra"],
   [ROL.ADMIN]: ["cocina", "barra"],
 };
-
-const TIEMPO_LIMITE_MS = 8000;
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -85,8 +83,6 @@ function SinPermiso({ user, info, onSalir }) {
           <br />
           <strong>Documento encontrado:</strong> {info?.existe ? "sí" : "no"}
           <br />
-          <strong>Desde caché:</strong> {info?.cache ? "sí" : "no"}
-          <br />
           <strong>Datos:</strong> {info?.datos ? JSON.stringify(info.datos) : "ninguno"}
         </p>
         <button className="btn" onClick={onSalir}>Salir</button>
@@ -97,9 +93,6 @@ function SinPermiso({ user, info, onSalir }) {
 
 export default function App() {
   const [user, setUser] = useState(undefined); // undefined = todavía cargando
-  const [staff, setStaff] = useState(null);
-  const [staffInfo, setStaffInfo] = useState(null);
-  const [staffError, setStaffError] = useState("");
   const [vista, setVista] = useState("salon");
   const [pedidoActivo, setPedidoActivo] = useState(null); // { pedidoId, mesaNumero }
 
@@ -108,64 +101,29 @@ export default function App() {
 
   useEffect(() => onAuthStateChanged(auth, setUser), []);
 
-  useEffect(() => {
-    if (!user) {
-      setStaff(null);
-      setStaffInfo(null);
-      setStaffError("");
-      return undefined;
-    }
-
-    // Si Firestore no responde desde este dispositivo, mostrar el motivo en vez de quedarse cargando
-    const temporizador = setTimeout(() => {
-      setStaffError(
-        `Firestore no respondió en ${TIEMPO_LIMITE_MS / 1000} segundos desde este dispositivo. ` +
-          "Revisá la conexión o avisame para probar otra vía."
-      );
-    }, TIEMPO_LIMITE_MS);
-
-    const quitar = onSnapshot(
-      doc(db, "staff", user.uid),
-      (snap) => {
-        // La primera respuesta puede venir vacía desde la caché: esperar la del servidor
-        if (!snap.exists() && snap.metadata.fromCache) return;
-
-        clearTimeout(temporizador);
-        setStaffError("");
-        setStaffInfo({
-          existe: snap.exists(),
-          cache: snap.metadata.fromCache,
-          datos: snap.data() || null,
-        });
-        setStaff(
-          snap.exists()
-            ? { uid: user.uid, ...snap.data() }
-            : { uid: user.uid, sinPerfil: true }
-        );
-      },
-      (err) => {
-        clearTimeout(temporizador);
-        setStaffError(`${err.code || "error"}: ${err.message}`);
-      }
-    );
-
-    return () => {
-      clearTimeout(temporizador);
-      quitar();
-    };
-  }, [user]);
+  const uid = user?.uid;
+  const perfilQ = usePolling(
+    async () => {
+      if (!uid) return null;
+      const datos = await leerDoc("staff", uid);
+      return { existe: !!datos, datos };
+    },
+    [uid],
+    30000
+  );
 
   if (user === undefined) return <div className="login"><p>Cargando...</p></div>;
   if (!user) return <Login />;
 
-  if (!staff) {
+  const perfil = perfilQ.datos;
+  if (!perfil) {
     return (
       <div className="login">
         <div className="card login-card">
-          {staffError ? (
+          {perfilQ.error ? (
             <>
-              <p className="error">No se pudo leer tu perfil de Firestore:</p>
-              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{staffError}</pre>
+              <p className="error">No se pudo leer tu perfil:</p>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{perfilQ.error}</pre>
             </>
           ) : (
             <p>Cargando perfil...</p>
@@ -176,8 +134,18 @@ export default function App() {
     );
   }
 
+  const staff = perfil.existe
+    ? { uid: user.uid, ...perfil.datos }
+    : { uid: user.uid, sinPerfil: true };
+
   if (staff.sinPerfil || staff.activo === false) {
-    return <SinPermiso user={user} info={staffInfo} onSalir={() => signOut(auth)} />;
+    return (
+      <SinPermiso
+        user={user}
+        info={{ existe: perfil.existe, datos: perfil.datos }}
+        onSalir={() => signOut(auth)}
+      />
+    );
   }
 
   const vistasPermitidas = Object.entries(VISTAS).filter(([, v]) => v.roles.includes(staff.rol));
