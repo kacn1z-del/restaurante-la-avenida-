@@ -16,6 +16,11 @@ function claseTiempo(pedido) {
   return "t-tarde";
 }
 
+// Primer nombre del empleado para mostrarlo en la mesa
+function primerNombre(nombre) {
+  return (nombre || "").trim().split(" ")[0] || "";
+}
+
 export default function Salon({ staff, onAbrirPedido }) {
   const [salonId, setSalonId] = useState(null);
   const [ocupado, setOcupado] = useState(false);
@@ -135,7 +140,7 @@ export default function Salon({ staff, onAbrirPedido }) {
     .sort((a, b) => (a.posicion ?? 1e9) - (b.posicion ?? 1e9) || a.numero - b.numero);
 
   return (
-    <section>
+    <section className="salon">
       <div className="salones-tabs">
         {salones.map((s) => (
           <button
@@ -148,7 +153,75 @@ export default function Salon({ staff, onAbrirPedido }) {
         ))}
       </div>
 
-      <div className="salon-controles">
+      <div className="plano-panel">
+        {modoDiseno && <p className="plano-titulo">Modo diseño</p>}
+
+        {error && <p className="error">{error}</p>}
+
+        <div className="plano-grid">
+          {mesasDelSalon.map((m, idx) => {
+            const pedido = pedidos[m.pedidoActivoId];
+            const reserva = reservaPorMesa[m.id];
+
+            let clase = m.estado;
+            if (m.estado === ESTADO_MESA.LIBRE && reserva) clase = ESTADO_MESA.RESERVADA;
+            if (m.estado === ESTADO_MESA.OCUPADA && vistaTiempo && pedido) clase = claseTiempo(pedido);
+
+            return (
+              <div key={m.id} className="mesa-tile">
+                <button className="mesa-tile__cuerpo" disabled={ocupado} onClick={() => tocarMesa(m)}>
+                  <span className="mesa-tile__num">{m.numero}</span>
+                  {pedido && (
+                    <span className="mesa-tile__info">
+                      {primerNombre(pedido.empleadoNombre)} · {colones(pedido.total)}
+                    </span>
+                  )}
+                  {!pedido && reserva && (
+                    <span className="mesa-tile__info">Reserva {horaCorta(reserva.fechaHora)}</span>
+                  )}
+                  {pedido?.estado === ESTADO_PEDIDO.LISTO && <span className="badge">Listo</span>}
+                </button>
+
+                <div className={`mesa-tile__barra barra-${clase}`} />
+
+                {modoDiseno && (
+                  <div className="mesa-flechas">
+                    <button className="btn" disabled={idx === 0} onClick={() => moverMesa(m, -1)}>◀</button>
+                    <button
+                      className="btn"
+                      disabled={idx === mesasDelSalon.length - 1}
+                      onClick={() => moverMesa(m, 1)}
+                    >
+                      ▶
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {mesasDelSalon.length === 0 && (
+          <p>No hay mesas en este salón. Crealas en la pestaña Menú.</p>
+        )}
+
+        <div className="plano-leyenda">
+          <span className="ley ley-libre">Libre</span>
+          <span className="ley ley-ocupada">Ocupada</span>
+          <span className="ley ley-reservada">Reservada</span>
+          <span className="ley ley-otro_terminal">Otro terminal</span>
+          <div className="chips">
+            <button className={"chip" + (!vistaTiempo ? " activo" : "")} onClick={() => setVistaTiempo(false)}>
+              Color
+            </button>
+            <button className={"chip" + (vistaTiempo ? " activo" : "")} onClick={() => setVistaTiempo(true)}>
+              Movimiento
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="salon-acciones">
         <button className="btn" onClick={() => setReservasAbiertas(true)}>Reservas de mesas</button>
         <button
           className={"btn" + (modoDiseno ? " primary" : "")}
@@ -156,69 +229,6 @@ export default function Salon({ staff, onAbrirPedido }) {
         >
           Modo diseño {modoDiseno ? "(activo)" : ""}
         </button>
-        <div className="chips">
-          <button className={"chip" + (!vistaTiempo ? " activo" : "")} onClick={() => setVistaTiempo(false)}>
-            Color
-          </button>
-          <button className={"chip" + (vistaTiempo ? " activo" : "")} onClick={() => setVistaTiempo(true)}>
-            Movimiento
-          </button>
-        </div>
-      </div>
-
-      <div className="leyenda">
-        <span className="mesa-libre">Libre</span>
-        <span className="mesa-ocupada">Ocupada</span>
-        <span className="mesa-reservada">Reservada</span>
-        <span className="mesa-otro_terminal">Otro terminal</span>
-        {vistaTiempo && <span className="mesa-t-ok">Menos de 20 min</span>}
-        {vistaTiempo && <span className="mesa-t-alerta">20 a 40 min</span>}
-        {vistaTiempo && <span className="mesa-t-tarde">Más de 40 min</span>}
-      </div>
-
-      {error && <p className="error">{error}</p>}
-
-      <div className="plano">
-        {mesasDelSalon.map((m, idx) => {
-          const pedido = pedidos[m.pedidoActivoId];
-          const reserva = reservaPorMesa[m.id];
-
-          let clase = m.estado;
-          if (m.estado === ESTADO_MESA.LIBRE && reserva) clase = ESTADO_MESA.RESERVADA;
-          if (m.estado === ESTADO_MESA.OCUPADA && vistaTiempo && pedido) clase = claseTiempo(pedido);
-          return (
-            <div key={m.id} className="mesa-caja">
-              <button
-                className={`mesa mesa-${clase}`}
-                disabled={ocupado}
-                onClick={() => tocarMesa(m)}
-              >
-                <span className="mesa-num">{m.numero}</span>
-                {pedido && <span className="mesa-info">{colones(pedido.total)}</span>}
-                {!pedido && reserva && (
-                  <span className="mesa-info">Reserva {horaCorta(reserva.fechaHora)}</span>
-                )}
-                {pedido?.estado === ESTADO_PEDIDO.LISTO && <span className="badge">Listo</span>}
-              </button>
-
-              {modoDiseno && (
-                <div className="mesa-flechas">
-                  <button className="btn" disabled={idx === 0} onClick={() => moverMesa(m, -1)}>◀</button>
-                  <button
-                    className="btn"
-                    disabled={idx === mesasDelSalon.length - 1}
-                    onClick={() => moverMesa(m, 1)}
-                  >
-                    ▶
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {mesasDelSalon.length === 0 && (
-          <p>No hay mesas en este salón. Crealas en la pestaña Menú.</p>
-        )}
       </div>
 
       {reservasAbiertas && (
