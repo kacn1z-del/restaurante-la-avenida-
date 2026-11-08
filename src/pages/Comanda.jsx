@@ -1,61 +1,45 @@
-import { useEffect, useState } from "react";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  updateDoc,
-  writeBatch,
-} from "firebase/firestore";
-import { db } from "../firebase.js";
+import { useEffect, useRef, useState } from "react";
+import { actualizar, confirmar, consultar, leerDoc, usePolling } from "../lib/api.js";
 import { ESTADO_MESA, ESTADO_PEDIDO, TIPO_PRODUCTO } from "../lib/constants.js";
 import { colones, nuevoId } from "../lib/format.js";
 import Cobro from "../components/Cobro.jsx";
 
 export default function Comanda({ pedidoId, onVolver }) {
   const [pedido, setPedido] = useState(null);
-  const [productos, setProductos] = useState([]);
-  const [observaciones, setObservaciones] = useState([]);
   const [seleccionado, setSeleccionado] = useState(null);
   const [busqueda, setBusqueda] = useState("");
   const [cobrando, setCobrando] = useState(false);
   const [error, setError] = useState("");
+  // Cantidad de guardados en curso: mientras haya uno, no se pisa el pedido local con datos viejos
+  const guardandoRef = useRef(0);
 
-  useEffect(
-    () =>
-      onSnapshot(doc(db, "pedidos", pedidoId), (snap) => {
-        if (!snap.exists()) return onVolver();
-        const data = { id: snap.id, ...snap.data() };
-        if (data.estado === ESTADO_PEDIDO.COBRADO || data.estado === ESTADO_PEDIDO.ANULADO) {
-          return onVolver();
-        }
-        setPedido(data);
-      }),
-    [pedidoId, onVolver]
+  const pedidoQ = usePolling(
+    async () => {
+      const datos = await leerDoc("pedidos", pedidoId);
+      return { existe: !!datos, datos };
+    },
+    [pedidoId],
+    3000
   );
+  const productosQ = usePolling(() => consultar("productos", { orden: [["posicion"]] }), [], 15000);
+  const observacionesQ = usePolling(() => consultar("observaciones"), [], 15000);
 
-  useEffect(
-    () =>
-      onSnapshot(query(collection(db, "productos"), orderBy("posicion")), (snap) => {
-        setProductos(
-          snap.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .filter((p) => p.activo !== false && p.tipo !== TIPO_PRODUCTO.INGREDIENTE)
-        );
-      }),
-    []
-  );
-
-  useEffect(
-    () =>
-      onSnapshot(collection(db, "observaciones"), (snap) => {
-        setObservaciones(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }),
-    []
-  );
+  useEffect(() => {
+    const r = pedidoQ.datos;
+    if (!r) return;
+    if (!r.existe || r.datos.estado === ESTADO_PEDIDO.COBRADO || r.datos.estado === ESTADO_PEDIDO.ANULADO) {
+      onVolver();
+      return;
+    }
+    if (guardandoRef.current === 0) setPedido(r.datos);
+  }, [pedidoQ.datos, onVolver]);
 
   if (!pedido) return <p className="cargando">Cargando pedido...</p>;
+
+  const productos = (productosQ.datos || []).filter(
+    (p) => p.activo !== false && p.tipo !== TIPO_PRODUCTO.INGREDIENTE
+  );
+  const observaciones = observacionesQ.datos || [];
 
   const items = pedido.items || [];
   const hayNuevos = items.some((i) => !i.enviado);
@@ -70,12 +54,19 @@ export default function Comanda({ pedidoId, onVolver }) {
   async function guardarItems(nuevos, estado) {
     setError("");
     const total = nuevos.reduce((s, i) => s + i.precio * i.cantidad, 0);
-    const data = { items: nuevos, total };
-    if (estado) data.estado = estado;
+    const datos = { items: nuevos, total };
+    if (estado) datos.estado = estado;
+
+    // Se muestra de inmediato; el servidor se actualiza después
+    setPedido((p) => (p ? { ...p, ...datos } : p));
+    guardandoRef.current += 1;
     try {
-      await updateDoc(doc(db, "pedidos", pedidoId), data);
+      await confirmar([actualizar("pedidos", pedidoId, datos)]);
     } catch (e) {
       setError("No se pudo guardar: " + e.message);
+    } finally {
+      guardandoRef.current -= 1;
+      pedidoQ.recargar();
     }
   }
 
@@ -134,13 +125,10 @@ export default function Comanda({ pedidoId, onVolver }) {
     if (hayEnviados) return;
     if (!confirm("¿Liberar la mesa? El pedido quedará anulado.")) return;
     try {
-      const batch = writeBatch(db);
-      batch.update(doc(db, "pedidos", pedidoId), { estado: ESTADO_PEDIDO.ANULADO });
-      batch.update(doc(db, "mesas", pedido.mesaId), {
-        estado: ESTADO_MESA.LIBRE,
-        pedidoActivoId: null,
-      });
-      await batch.commit();
+      await confirmar([
+        actualizar("pedidos", pedidoId, { estado: ESTADO_PEDIDO.ANULADO }),
+        actualizar("mesas", pedido.mesaId, { estado: ESTADO_MESA.LIBRE, pedidoActivoId: null }),
+      ]);
       onVolver();
     } catch (e) {
       setError("No se pudo liberar la mesa: " + e.message);
