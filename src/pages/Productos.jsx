@@ -9,7 +9,7 @@ import {
   nuevoIdDoc,
   usePolling,
 } from "../lib/api.js";
-import { ESTADO_MESA, TIPO_PRODUCTO, ZONA } from "../lib/constants.js";
+import { COLORES_PRODUCTO, ESTADO_MESA, TARIFAS_IMPUESTO, TIPO_PRODUCTO, ZONA } from "../lib/constants.js";
 import { colones } from "../lib/format.js";
 
 const FORM_VACIO = {
@@ -21,6 +21,8 @@ const FORM_VACIO = {
   posicion: "",
   unidad: "Unidades",
   cabys: "",
+  tarifaCodigo: "08",
+  color: COLORES_PRODUCTO[0],
   stockActual: "",
   stockMinimo: "",
   controlaStock: false,
@@ -52,6 +54,12 @@ export default function Productos() {
   }
 
   const ingredientes = productos.filter((p) => p.tipo === TIPO_PRODUCTO.INGREDIENTE);
+  const bajoMinimo = productos.filter(
+    (p) =>
+      p.activo !== false &&
+      (p.controlaStock || p.tipo === TIPO_PRODUCTO.INGREDIENTE) &&
+      Number(p.stockActual) <= Number(p.stockMinimo)
+  );
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -78,6 +86,8 @@ export default function Productos() {
       posicion: String(p.posicion ?? ""),
       unidad: p.unidad || "Unidades",
       cabys: p.cabys || "",
+      tarifaCodigo: p.tarifaCodigo || "08",
+      color: p.color || COLORES_PRODUCTO[0],
       stockActual: String(p.stockActual ?? ""),
       stockMinimo: String(p.stockMinimo ?? ""),
       controlaStock: !!p.controlaStock,
@@ -103,7 +113,8 @@ export default function Productos() {
       posicion: Number(form.posicion) || 0,
       unidad: form.unidad,
       cabys: form.cabys.trim(),
-      tarifaCodigo: "08",
+      tarifaCodigo: form.tarifaCodigo,
+      color: form.color,
       stockActual: Number(form.stockActual) || 0,
       stockMinimo: Number(form.stockMinimo) || 0,
       controlaStock: form.controlaStock,
@@ -223,6 +234,23 @@ export default function Productos() {
             <input type="number" placeholder="Posición en menú" value={form.posicion} onChange={(e) => set("posicion", e.target.value)} />
             <input placeholder="Unidad (Unidades, Kg, Litros…)" value={form.unidad} onChange={(e) => set("unidad", e.target.value)} />
             <input placeholder="Código CABYS" value={form.cabys} onChange={(e) => set("cabys", e.target.value)} />
+            <select value={form.tarifaCodigo} onChange={(e) => set("tarifaCodigo", e.target.value)}>
+              {TARIFAS_IMPUESTO.map((t) => (
+                <option key={t.codigo} value={t.codigo}>{t.label}</option>
+              ))}
+            </select>
+            <div className="colores">
+              {COLORES_PRODUCTO.map((c) => (
+                <button
+                  type="button"
+                  key={c}
+                  className={"color-op" + (form.color === c ? " sel" : "")}
+                  style={{ background: c }}
+                  onClick={() => set("color", c)}
+                  aria-label={"Color " + c}
+                />
+              ))}
+            </div>
             <input type="number" step="any" placeholder="Stock actual" value={form.stockActual} onChange={(e) => set("stockActual", e.target.value)} />
             <input type="number" step="any" placeholder="Stock mínimo" value={form.stockMinimo} onChange={(e) => set("stockMinimo", e.target.value)} />
             <label className="check">
@@ -255,6 +283,17 @@ export default function Productos() {
         </form>
       </section>
 
+      {bajoMinimo.length > 0 && (
+        <section className="card">
+          <h2>Stock bajo</h2>
+          {bajoMinimo.map((p) => (
+            <p key={p.id} className="error">
+              {p.nombre}: quedan {p.stockActual} (mínimo {p.stockMinimo})
+            </p>
+          ))}
+        </section>
+      )}
+
       <section className="card">
         <h2>Productos e ingredientes</h2>
         <table className="tabla">
@@ -273,7 +312,10 @@ export default function Productos() {
               const bajo = muestraStock && Number(p.stockActual) <= Number(p.stockMinimo);
               return (
                 <tr key={p.id} style={{ opacity: p.activo === false ? 0.5 : 1 }}>
-                  <td>{p.nombre}</td>
+                  <td>
+                    <span className="color-dot" style={{ background: p.color || "#8f7c68" }} />
+                    {p.nombre}
+                  </td>
                   <td>{p.zona}</td>
                   <td>{colones(p.precio)}</td>
                   <td className={bajo ? "error" : ""}>{muestraStock ? p.stockActual : "—"}</td>
