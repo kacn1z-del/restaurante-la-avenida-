@@ -23,6 +23,8 @@ const ZONAS_POR_ROL = {
   [ROL.ADMIN]: ["cocina", "barra"],
 };
 
+const TIEMPO_LIMITE_MS = 8000;
+
 function Login() {
   const [email, setEmail] = useState("");
   const [pass, setPass] = useState("");
@@ -113,12 +115,22 @@ export default function App() {
       setStaffError("");
       return undefined;
     }
-    return onSnapshot(
+
+    // Si Firestore no responde desde este dispositivo, mostrar el motivo en vez de quedarse cargando
+    const temporizador = setTimeout(() => {
+      setStaffError(
+        `Firestore no respondió en ${TIEMPO_LIMITE_MS / 1000} segundos desde este dispositivo. ` +
+          "Revisá la conexión o avisame para probar otra vía."
+      );
+    }, TIEMPO_LIMITE_MS);
+
+    const quitar = onSnapshot(
       doc(db, "staff", user.uid),
       (snap) => {
         // La primera respuesta puede venir vacía desde la caché: esperar la del servidor
         if (!snap.exists() && snap.metadata.fromCache) return;
 
+        clearTimeout(temporizador);
         setStaffError("");
         setStaffInfo({
           existe: snap.exists(),
@@ -132,9 +144,15 @@ export default function App() {
         );
       },
       (err) => {
+        clearTimeout(temporizador);
         setStaffError(`${err.code || "error"}: ${err.message}`);
       }
     );
+
+    return () => {
+      clearTimeout(temporizador);
+      quitar();
+    };
   }, [user]);
 
   if (user === undefined) return <div className="login"><p>Cargando...</p></div>;
