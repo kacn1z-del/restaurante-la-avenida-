@@ -69,9 +69,34 @@ function Login() {
   );
 }
 
+function SinPermiso({ user, info, onSalir }) {
+  return (
+    <div className="login">
+      <div className="card login-card">
+        <p>Tu usuario no tiene permisos. Pedí acceso al administrador.</p>
+        <p style={{ fontSize: 12, wordBreak: "break-all" }}>
+          <strong>Correo:</strong> {user.email}
+          <br />
+          <strong>UID:</strong> {user.uid}
+          <br />
+          <strong>Proyecto:</strong> {import.meta.env.VITE_FIREBASE_PROJECT_ID}
+          <br />
+          <strong>Documento encontrado:</strong> {info?.existe ? "sí" : "no"}
+          <br />
+          <strong>Desde caché:</strong> {info?.cache ? "sí" : "no"}
+          <br />
+          <strong>Datos:</strong> {info?.datos ? JSON.stringify(info.datos) : "ninguno"}
+        </p>
+        <button className="btn" onClick={onSalir}>Salir</button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(undefined); // undefined = todavía cargando
   const [staff, setStaff] = useState(null);
+  const [staffInfo, setStaffInfo] = useState(null);
   const [staffError, setStaffError] = useState("");
   const [vista, setVista] = useState("salon");
   const [pedidoActivo, setPedidoActivo] = useState(null); // { pedidoId, mesaNumero }
@@ -84,13 +109,22 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setStaff(null);
+      setStaffInfo(null);
       setStaffError("");
       return undefined;
     }
     return onSnapshot(
       doc(db, "staff", user.uid),
       (snap) => {
+        // La primera respuesta puede venir vacía desde la caché: esperar la del servidor
+        if (!snap.exists() && snap.metadata.fromCache) return;
+
         setStaffError("");
+        setStaffInfo({
+          existe: snap.exists(),
+          cache: snap.metadata.fromCache,
+          datos: snap.data() || null,
+        });
         setStaff(
           snap.exists()
             ? { uid: user.uid, ...snap.data() }
@@ -125,14 +159,7 @@ export default function App() {
   }
 
   if (staff.sinPerfil || staff.activo === false) {
-    return (
-      <div className="login">
-        <div className="card login-card">
-          <p>Tu usuario no tiene permisos. Pedí acceso al administrador.</p>
-          <button className="btn" onClick={() => signOut(auth)}>Salir</button>
-        </div>
-      </div>
-    );
+    return <SinPermiso user={user} info={staffInfo} onSalir={() => signOut(auth)} />;
   }
 
   const vistasPermitidas = Object.entries(VISTAS).filter(([, v]) => v.roles.includes(staff.rol));
