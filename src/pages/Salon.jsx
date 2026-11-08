@@ -1,63 +1,33 @@
 import { useEffect, useState } from "react";
-import {
-  collection,
-  doc,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-  writeBatch,
-} from "firebase/firestore";
-import { db } from "../firebase.js";
+import { actualizar, ahora, confirmar, consultar, crear, nuevoIdDoc, usePolling } from "../lib/api.js";
 import { ESTADO_MESA, ESTADO_PEDIDO } from "../lib/constants.js";
 import { colones } from "../lib/format.js";
 
 export default function Salon({ staff, onAbrirPedido }) {
-  const [salones, setSalones] = useState([]);
-  const [mesas, setMesas] = useState([]);
-  const [pedidos, setPedidos] = useState({});
   const [salonId, setSalonId] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(
+  const salonesQ = usePolling(() => consultar("salones", { orden: [["orden"]] }), [], 15000);
+  const mesasQ = usePolling(() => consultar("mesas", { orden: [["numero"]] }), [], 6000);
+  const pedidosQ = usePolling(
     () =>
-      onSnapshot(query(collection(db, "salones"), orderBy("orden")), (snap) => {
-        setSalones(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      consultar("pedidos", {
+        where: [
+          ["estado", "in", [ESTADO_PEDIDO.ABIERTO, ESTADO_PEDIDO.EN_COCINA, ESTADO_PEDIDO.LISTO]],
+        ],
       }),
-    []
+    [],
+    6000
   );
+
+  const salones = salonesQ.datos || [];
+  const mesas = mesasQ.datos || [];
+  const pedidos = Object.fromEntries((pedidosQ.datos || []).map((p) => [p.id, p]));
 
   useEffect(() => {
     if (!salonId && salones.length) setSalonId(salones[0].id);
   }, [salones, salonId]);
-
-  useEffect(
-    () =>
-      onSnapshot(query(collection(db, "mesas"), orderBy("numero")), (snap) => {
-        setMesas(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }),
-    []
-  );
-
-  useEffect(
-    () =>
-      onSnapshot(
-        query(
-          collection(db, "pedidos"),
-          where("estado", "in", [ESTADO_PEDIDO.ABIERTO, ESTADO_PEDIDO.EN_COCINA, ESTADO_PEDIDO.LISTO])
-        ),
-        (snap) => {
-          const mapa = {};
-          snap.docs.forEach((d) => {
-            mapa[d.id] = { id: d.id, ...d.data() };
-          });
-          setPedidos(mapa);
-        }
-      ),
-    []
-  );
 
   async function tocarMesa(mesa) {
     setError("");
@@ -75,27 +45,29 @@ export default function Salon({ staff, onAbrirPedido }) {
 
     setOcupado(true);
     try {
-      const pedidoRef = doc(collection(db, "pedidos"));
-      const batch = writeBatch(db);
-      batch.set(pedidoRef, {
-        mesaId: mesa.id,
-        mesaNumero: mesa.numero,
-        salonId: mesa.salonId,
-        empleadoUid: staff.uid,
-        empleadoNombre: staff.nombre || "",
-        estado: ESTADO_PEDIDO.ABIERTO,
-        items: [],
-        total: 0,
-        pagos: [],
-        creadoEn: serverTimestamp(),
-        cobradoEn: null,
-      });
-      batch.update(doc(db, "mesas", mesa.id), {
-        estado: ESTADO_MESA.OCUPADA,
-        pedidoActivoId: pedidoRef.id,
-      });
-      await batch.commit();
-      onAbrirPedido({ pedidoId: pedidoRef.id, mesaNumero: mesa.numero });
+      const pedidoId = nuevoIdDoc();
+      await confirmar([
+        crear("pedidos", pedidoId, {
+          mesaId: mesa.id,
+          mesaNumero: mesa.numero,
+          salonId: mesa.salonId,
+          empleadoUid: staff.uid,
+          empleadoNombre: staff.nombre || "",
+          estado: ESTADO_PEDIDO.ABIERTO,
+          items: [],
+          total: 0,
+          pagos: [],
+          creadoEn: ahora(),
+          cobradoEn: null,
+        }),
+        actualizar("mesas", mesa.id, {
+          estado: ESTADO_MESA.OCUPADA,
+          pedidoActivoId: pedidoId,
+        }),
+      ]);
+      mesasQ.recargar();
+      pedidosQ.recargar();
+      onAbrirPedido({ pedidoId, mesaNumero: mesa.numero });
     } catch (e) {
       setError("No se pudo abrir la mesa: " + e.message);
     } finally {
