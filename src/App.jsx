@@ -168,7 +168,7 @@ export default function App() {
     : vistasPermitidas[0]?.[0];
 
   if (pedidoActivo) {
-    return <Comanda pedidoId={pedidoActivo.pedidoId} onVolver={volver} />;
+    return <Comanda pedidoId={pedidoActivo.pedidoId} onVolver={volver} staff={staff} />;
   }
 
   return (
