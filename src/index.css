@@ -949,6 +949,47 @@ select {
   font-family: var(--font-mono);
 }
 
+/* ---------- Controles del salón ---------- */
+
+.salon-controles {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 12px;
+}
+
+.mesa-caja {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mesa-flechas {
+  display: flex;
+  gap: 6px;
+}
+
+.mesa-flechas .btn {
+  flex: 1;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
+/* Vista por tiempo: cuánto lleva ocupada la mesa */
+.mesa-t-ok {
+  background: linear-gradient(160deg, #5fb584, var(--status-green));
+}
+
+.mesa-t-alerta {
+  background: linear-gradient(160deg, var(--ember-400), var(--flame-500));
+  color: var(--char-950);
+}
+
+.mesa-t-tarde {
+  background: linear-gradient(160deg, #e5543a, #9e1f10);
+}
+
 /* ---------- Métricas (Resumen) ---------- */
 
 .metricas {
