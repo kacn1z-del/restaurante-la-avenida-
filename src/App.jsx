@@ -35,8 +35,8 @@ function Login() {
     setCargando(true);
     try {
       await signInWithEmailAndPassword(auth, email.trim(), pass);
-    } catch {
-      setError("Correo o contraseña incorrectos.");
+    } catch (err) {
+      setError("No se pudo entrar: " + (err.code || err.message));
     } finally {
       setCargando(false);
     }
@@ -72,6 +72,7 @@ function Login() {
 export default function App() {
   const [user, setUser] = useState(undefined); // undefined = todavía cargando
   const [staff, setStaff] = useState(null);
+  const [staffError, setStaffError] = useState("");
   const [vista, setVista] = useState("salon");
   const [pedidoActivo, setPedidoActivo] = useState(null); // { pedidoId, mesaNumero }
 
@@ -83,20 +84,45 @@ export default function App() {
   useEffect(() => {
     if (!user) {
       setStaff(null);
+      setStaffError("");
       return undefined;
     }
-    return onSnapshot(doc(db, "staff", user.uid), (snap) => {
-      setStaff(
-        snap.exists()
-          ? { uid: user.uid, ...snap.data() }
-          : { uid: user.uid, sinPerfil: true }
-      );
-    });
+    return onSnapshot(
+      doc(db, "staff", user.uid),
+      (snap) => {
+        setStaffError("");
+        setStaff(
+          snap.exists()
+            ? { uid: user.uid, ...snap.data() }
+            : { uid: user.uid, sinPerfil: true }
+        );
+      },
+      (err) => {
+        setStaffError(`${err.code || "error"}: ${err.message}`);
+      }
+    );
   }, [user]);
 
   if (user === undefined) return <div className="login"><p>Cargando...</p></div>;
   if (!user) return <Login />;
-  if (!staff) return <div className="login"><p>Cargando perfil...</p></div>;
+
+  if (!staff) {
+    return (
+      <div className="login">
+        <div className="card login-card">
+          {staffError ? (
+            <>
+              <p className="error">No se pudo leer tu perfil de Firestore:</p>
+              <pre style={{ whiteSpace: "pre-wrap", fontSize: 13 }}>{staffError}</pre>
+            </>
+          ) : (
+            <p>Cargando perfil...</p>
+          )}
+          <button className="btn" onClick={() => signOut(auth)}>Salir</button>
+        </div>
+      </div>
+    );
+  }
 
   if (staff.sinPerfil || staff.activo === false) {
     return (
@@ -115,12 +141,7 @@ export default function App() {
     : vistasPermitidas[0]?.[0];
 
   if (pedidoActivo) {
-    return (
-      <Comanda
-        pedidoId={pedidoActivo.pedidoId}
-        onVolver={volver}
-      />
-    );
+    return <Comanda pedidoId={pedidoActivo.pedidoId} onVolver={volver} />;
   }
 
   return (
