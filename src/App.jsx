@@ -13,6 +13,9 @@ import Resumen from "./pages/Resumen.jsx";
 import Pedidos from "./pages/Pedidos.jsx";
 import Personal from "./pages/Personal.jsx";
 import Listados from "./pages/Listados.jsx";
+import Configuracion from "./pages/Configuracion.jsx";
+import Mantenimiento from "./pages/Mantenimiento.jsx";
+import ControlHorario from "./pages/ControlHorario.jsx";
 
 const VISTAS = {
   resumen: { label: "Resumen", icono: "◔", roles: [ROL.ADMIN] },
@@ -23,7 +26,10 @@ const VISTAS = {
   productos: { label: "Menú", icono: "🍽", roles: [ROL.ADMIN] },
   compras: { label: "Compras", icono: "🧾", roles: [ROL.ADMIN] },
   listados: { label: "Listados", icono: "▤", roles: [ROL.ADMIN] },
-  personal: { label: "Personal", icono: "🔑", roles: [ROL.ADMIN, ROL.MESERO, ROL.COCINA, ROL.BARRA, ROL.CAJA] },
+  configuracion: { label: "Configuración", icono: "⚙", roles: [ROL.ADMIN] },
+  mantenimiento: { label: "Mantenimiento", icono: "⟳", roles: [ROL.ADMIN] },
+  controlHorario: { label: "Control horario", icono: "⏱", roles: [ROL.ADMIN, ROL.MESERO, ROL.COCINA, ROL.BARRA, ROL.CAJA] },
+  personal: { label: "Empleados", icono: "👥", roles: [ROL.ADMIN] },
 };
 
 // Qué zonas ve cada rol en la pantalla de cocina
@@ -218,8 +224,11 @@ export default function App() {
           {vistaActual === "caja" && <Caja staff={staff} />}
           {vistaActual === "productos" && <Productos />}
           {vistaActual === "compras" && <Compras staff={staff} />}
-          {vistaActual === "personal" && <Personal staff={staff} />}
           {vistaActual === "listados" && <Listados />}
+          {vistaActual === "configuracion" && <Configuracion />}
+          {vistaActual === "mantenimiento" && <Mantenimiento />}
+          {vistaActual === "controlHorario" && <ControlHorario staff={staff} />}
+          {vistaActual === "personal" && <Personal staff={staff} />}
         </div>
       </main>
     </div>
