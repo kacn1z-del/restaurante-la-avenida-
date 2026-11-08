@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { actualizar, ahora, confirmar, consultar, leerDoc, usePolling } from "../lib/api.js";
-import { ESTADO_MESA, ESTADO_PEDIDO, ROL, TIPO_PRODUCTO } from "../lib/constants.js";
+import { ESTADO_MESA, ESTADO_PEDIDO, OPCIONES_ORDEN_SERVICIO, ROL, TIPO_PRODUCTO } from "../lib/constants.js";
 import { colones, nuevoId } from "../lib/format.js";
 import Cobro from "../components/Cobro.jsx";
 import Ticket from "../components/Ticket.jsx";
 import Juntar from "../components/Juntar.jsx";
+import ComandaImpresa from "../components/ComandaImpresa.jsx";
 
 export default function Comanda({ pedidoId, onVolver, staff }) {
   const [pedido, setPedido] = useState(null);
@@ -14,6 +15,8 @@ export default function Comanda({ pedidoId, onVolver, staff }) {
   const [juntando, setJuntando] = useState(false);
   const [preticket, setPreticket] = useState(false);
   const [error, setError] = useState("");
+  const [comandas, setComandas] = useState(null); // { zonas, items } tras enviar a cocina
+  const [imprimirZona, setImprimirZona] = useState(null); // { zona, items }
   // Cantidad de guardados en curso: mientras haya uno, no se pisa el pedido local con datos viejos
   const guardandoRef = useRef(0);
 
@@ -108,6 +111,14 @@ export default function Comanda({ pedidoId, onVolver, staff }) {
     if (seleccionado === id && !nuevos.some((i) => i.id === id)) setSeleccionado(null);
   }
 
+  function setOrden(id, valor) {
+    const nuevos = items.map((i) => {
+      if (i.id !== id || i.enviado) return i;
+      return { ...i, orden: i.orden === valor ? null : valor };
+    });
+    guardarItems(nuevos);
+  }
+
   function toggleObs(id, texto) {
     const nuevos = items.map((i) => {
       if (i.id !== id || i.enviado) return i;
@@ -122,8 +133,12 @@ export default function Comanda({ pedidoId, onVolver, staff }) {
 
   async function enviarACocina() {
     if (!hayNuevos) return;
+    const recien = items.filter((i) => !i.enviado);
     const nuevos = items.map((i) => (i.enviado ? i : { ...i, enviado: true, listo: false }));
     await guardarItems(nuevos, ESTADO_PEDIDO.EN_COCINA);
+    // Se ofrece imprimir una comanda por cada zona que tenga productos nuevos
+    const zonas = [...new Set(recien.map((i) => i.zona || "cocina"))];
+    setComandas({ zonas, items: recien });
   }
 
   async function liberarMesa() {
@@ -224,6 +239,7 @@ export default function Comanda({ pedidoId, onVolver, staff }) {
                 <span>{i.cantidad} × {i.nombre}</span>
                 <span>{colones(i.precio * i.cantidad)}</span>
               </div>
+              {i.orden && <small>Orden: {i.orden}</small>}
               {i.observaciones?.length > 0 && <small>{i.observaciones.join(", ")}</small>}
               <div className="item-acciones">
                 {i.enviado ? (
@@ -250,6 +266,18 @@ export default function Comanda({ pedidoId, onVolver, staff }) {
 
           {sel && !sel.enviado && (
             <div className="observaciones">
+              <h4>Orden de servicio</h4>
+              <div className="chips" style={{ marginBottom: 12 }}>
+                {OPCIONES_ORDEN_SERVICIO.map((o) => (
+                  <button
+                    key={o}
+                    className={"chip" + (sel.orden === o ? " activo" : "")}
+                    onClick={() => setOrden(sel.id, o)}
+                  >
+                    {o}
+                  </button>
+                ))}
+              </div>
               <h4>Observaciones de {sel.nombre}</h4>
               <div className="chips">
                 {observaciones.map((o) => (
@@ -304,6 +332,40 @@ export default function Comanda({ pedidoId, onVolver, staff }) {
           productos={productos}
           onCerrado={alCerrarCobro}
           onCancelar={() => setCobrando(false)}
+        />
+      )}
+
+      {comandas && !imprimirZona && (
+        <div className="modal-fondo">
+          <div className="modal card">
+            <h2>Comandas listas</h2>
+            <p>Imprimí una comanda por cada zona.</p>
+            {comandas.zonas.map((z) => (
+              <button
+                key={z}
+                className="btn primary bloque"
+                onClick={() =>
+                  setImprimirZona({
+                    zona: z,
+                    items: comandas.items.filter((i) => (i.zona || "cocina") === z),
+                  })
+                }
+              >
+                Comanda de {z === "barra" ? "barra" : "cocina"}
+              </button>
+            ))}
+            <button className="btn bloque" onClick={() => setComandas(null)}>Cerrar</button>
+          </div>
+        </div>
+      )}
+
+      {imprimirZona && (
+        <ComandaImpresa
+          zona={imprimirZona.zona}
+          items={imprimirZona.items}
+          mesaNumero={pedido.mesaNumero}
+          empleado={pedido.empleadoNombre}
+          onCerrar={() => setImprimirZona(null)}
         />
       )}
 
