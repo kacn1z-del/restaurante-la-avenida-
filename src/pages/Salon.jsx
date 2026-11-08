@@ -1,12 +1,28 @@
 import { useEffect, useState } from "react";
 import { actualizar, ahora, confirmar, consultar, crear, nuevoIdDoc, usePolling } from "../lib/api.js";
 import { ESTADO_MESA, ESTADO_PEDIDO } from "../lib/constants.js";
-import { colones } from "../lib/format.js";
+import { colones, horaCorta } from "../lib/format.js";
+import Reservas from "../components/Reservas.jsx";
+
+const MINUTOS_ANTES = 30;
+const MINUTOS_DESPUES = 120;
+
+// Color de la mesa según cuánto lleva ocupada
+function claseTiempo(pedido) {
+  const creado = pedido?.creadoEn instanceof Date ? pedido.creadoEn.getTime() : Date.now();
+  const minutos = (Date.now() - creado) / 60000;
+  if (minutos < 20) return "t-ok";
+  if (minutos < 40) return "t-alerta";
+  return "t-tarde";
+}
 
 export default function Salon({ staff, onAbrirPedido }) {
   const [salonId, setSalonId] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const [error, setError] = useState("");
+  const [modoDiseno, setModoDiseno] = useState(false);
+  const [vistaTiempo, setVistaTiempo] = useState(false);
+  const [reservasAbiertas, setReservasAbiertas] = useState(false);
 
   const salonesQ = usePolling(() => consultar("salones", { orden: [["orden"]] }), [], 15000);
   const mesasQ = usePolling(() => consultar("mesas", { orden: [["numero"]] }), [], 6000);
@@ -20,6 +36,11 @@ export default function Salon({ staff, onAbrirPedido }) {
     [],
     6000
   );
+  const reservasQ = usePolling(
+    () => consultar("reservas", { where: [["estado", "==", "activa"]] }),
+    [],
+    30000
+  );
 
   const salones = salonesQ.datos || [];
   const mesas = mesasQ.datos || [];
@@ -29,7 +50,20 @@ export default function Salon({ staff, onAbrirPedido }) {
     if (!salonId && salones.length) setSalonId(salones[0].id);
   }, [salones, salonId]);
 
+  // Reserva más cercana por mesa, dentro de la ventana de hoy
+  const ahoraMs = Date.now();
+  const reservaPorMesa = {};
+  for (const r of reservasQ.datos || []) {
+    if (!r.mesaId || !(r.fechaHora instanceof Date)) continue;
+    const t = r.fechaHora.getTime();
+    const dentro = t >= ahoraMs - MINUTOS_ANTES * 60000 && t <= ahoraMs + MINUTOS_DESPUES * 60000;
+    if (!dentro) continue;
+    const actual = reservaPorMesa[r.mesaId];
+    if (!actual || t < actual.fechaHora.getTime()) reservaPorMesa[r.mesaId] = r;
+  }
+
   async function tocarMesa(mesa) {
+    if (modoDiseno) return;
     setError("");
     const pedido = pedidos[mesa.pedidoActivoId];
 
@@ -38,7 +72,7 @@ export default function Salon({ staff, onAbrirPedido }) {
       return;
     }
     if (mesa.estado === ESTADO_MESA.OCUPADA && !pedido) {
-      setError(`La mesa ${mesa.numero} está marcada como ocupada sin pedido. Revisala en Productos.`);
+      setError(`La mesa ${mesa.numero} está marcada como ocupada sin pedido. Revisala en Menú.`);
       return;
     }
     if (mesa.estado !== ESTADO_MESA.LIBRE) return;
@@ -75,7 +109,30 @@ export default function Salon({ staff, onAbrirPedido }) {
     }
   }
 
-  const mesasDelSalon = mesas.filter((m) => m.salonId === salonId);
+  // Modo diseño: mueve la mesa una posición a la izquierda o a la derecha dentro del salón
+  async function moverMesa(mesa, direccion) {
+    const lista = [...mesasDelSalon];
+    const idx = lista.findIndex((m) => m.id === mesa.id);
+    const nuevo = idx + direccion;
+    if (nuevo < 0 || nuevo >= lista.length) return;
+    const [quitada] = lista.splice(idx, 1);
+    lista.splice(nuevo, 0, quitada);
+
+    // Se guarda la posición de todas las mesas del salón para que el orden quede parejo
+    const escrituras = lista
+      .map((m, i) => (m.posicion === i ? null : actualizar("mesas", m.id, { posicion: i })))
+      .filter(Boolean);
+    try {
+      await confirmar(escrituras);
+      mesasQ.recargar();
+    } catch (e) {
+      setError("No se pudo mover la mesa: " + e.message);
+    }
+  }
+
+  const mesasDelSalon = mesas
+    .filter((m) => m.salonId === salonId)
+    .sort((a, b) => (a.posicion ?? 1e9) - (b.posicion ?? 1e9) || a.numero - b.numero);
 
   return (
     <section>
@@ -91,35 +148,82 @@ export default function Salon({ staff, onAbrirPedido }) {
         ))}
       </div>
 
+      <div className="salon-controles">
+        <button className="btn" onClick={() => setReservasAbiertas(true)}>Reservas de mesas</button>
+        <button
+          className={"btn" + (modoDiseno ? " primary" : "")}
+          onClick={() => setModoDiseno((v) => !v)}
+        >
+          Modo diseño {modoDiseno ? "(activo)" : ""}
+        </button>
+        <div className="chips">
+          <button className={"chip" + (!vistaTiempo ? " activo" : "")} onClick={() => setVistaTiempo(false)}>
+            Color
+          </button>
+          <button className={"chip" + (vistaTiempo ? " activo" : "")} onClick={() => setVistaTiempo(true)}>
+            Movimiento
+          </button>
+        </div>
+      </div>
+
       <div className="leyenda">
         <span className="mesa-libre">Libre</span>
         <span className="mesa-ocupada">Ocupada</span>
         <span className="mesa-reservada">Reservada</span>
         <span className="mesa-otro_terminal">Otro terminal</span>
+        {vistaTiempo && <span className="mesa-t-ok">Menos de 20 min</span>}
+        {vistaTiempo && <span className="mesa-t-alerta">20 a 40 min</span>}
+        {vistaTiempo && <span className="mesa-t-tarde">Más de 40 min</span>}
       </div>
 
       {error && <p className="error">{error}</p>}
 
       <div className="plano">
-        {mesasDelSalon.map((m) => {
+        {mesasDelSalon.map((m, idx) => {
           const pedido = pedidos[m.pedidoActivoId];
+          const reserva = reservaPorMesa[m.id];
+
+          let clase = m.estado;
+          if (m.estado === ESTADO_MESA.LIBRE && reserva) clase = ESTADO_MESA.RESERVADA;
+          if (m.estado === ESTADO_MESA.OCUPADA && vistaTiempo && pedido) clase = claseTiempo(pedido);
           return (
-            <button
-              key={m.id}
-              className={`mesa mesa-${m.estado}`}
-              disabled={ocupado}
-              onClick={() => tocarMesa(m)}
-            >
-              <span className="mesa-num">{m.numero}</span>
-              {pedido && <span className="mesa-info">{colones(pedido.total)}</span>}
-              {pedido?.estado === ESTADO_PEDIDO.LISTO && <span className="badge">Listo</span>}
-            </button>
+            <div key={m.id} className="mesa-caja">
+              <button
+                className={`mesa mesa-${clase}`}
+                disabled={ocupado}
+                onClick={() => tocarMesa(m)}
+              >
+                <span className="mesa-num">{m.numero}</span>
+                {pedido && <span className="mesa-info">{colones(pedido.total)}</span>}
+                {!pedido && reserva && (
+                  <span className="mesa-info">Reserva {horaCorta(reserva.fechaHora)}</span>
+                )}
+                {pedido?.estado === ESTADO_PEDIDO.LISTO && <span className="badge">Listo</span>}
+              </button>
+
+              {modoDiseno && (
+                <div className="mesa-flechas">
+                  <button className="btn" disabled={idx === 0} onClick={() => moverMesa(m, -1)}>◀</button>
+                  <button
+                    className="btn"
+                    disabled={idx === mesasDelSalon.length - 1}
+                    onClick={() => moverMesa(m, 1)}
+                  >
+                    ▶
+                  </button>
+                </div>
+              )}
+            </div>
           );
         })}
         {mesasDelSalon.length === 0 && (
-          <p>No hay mesas en este salón. Crealas en la pestaña Productos.</p>
+          <p>No hay mesas en este salón. Crealas en la pestaña Menú.</p>
         )}
       </div>
+
+      {reservasAbiertas && (
+        <Reservas mesas={mesas} onCerrar={() => setReservasAbiertas(false)} />
+      )}
     </section>
   );
 }
