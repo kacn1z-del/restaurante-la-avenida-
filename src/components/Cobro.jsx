@@ -4,16 +4,53 @@ import { ESTADO_MESA, ESTADO_PEDIDO, METODOS_PAGO } from "../lib/constants.js";
 import { colones } from "../lib/format.js";
 import Ticket from "./Ticket.jsx";
 
+function sumar(items) {
+  return items.reduce((s, i) => s + (Number(i.precio) || 0) * (Number(i.cantidad) || 0), 0);
+}
+
 export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
-  const total = Math.round(Number(pedido.total) || 0);
-  const [pagos, setPagos] = useState([{ metodo: "efectivo", monto: total }]);
+  const itemsPedido = pedido.items || [];
+  const [parcial, setParcial] = useState(false);
+  const [seleccion, setSeleccion] = useState(() => itemsPedido.map((i) => i.id));
+  const [pagos, setPagos] = useState([{ metodo: "efectivo", monto: Math.round(sumar(itemsPedido)) }]);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
-  const [cobrado, setCobrado] = useState(null); // { pedido, pagos, fecha } tras cobrar
+  const [cobrado, setCobrado] = useState(null); // { pedido, pagos, fecha, parcial } tras cobrar
+
+  // Productos que se cobran ahora
+  const itemsCobro = parcial ? itemsPedido.filter((i) => seleccion.includes(i.id)) : itemsPedido;
+  const restantes = parcial ? itemsPedido.filter((i) => !seleccion.includes(i.id)) : [];
+  // Si se eligen todos los productos, es un cobro total normal
+  const esParcial = parcial && itemsCobro.length > 0 && restantes.length > 0;
+  const total = Math.round(sumar(itemsCobro));
 
   const suma = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
   const falta = total - Math.round(suma);
   const cuadra = total > 0 && falta === 0;
+
+  // Al cambiar qué se cobra, si hay un solo pago se ajusta al nuevo total
+  function reajustarPagos(nuevaSeleccion, nuevoParcial) {
+    const base = nuevoParcial
+      ? itemsPedido.filter((i) => nuevaSeleccion.includes(i.id))
+      : itemsPedido;
+    const nuevo = Math.round(sumar(base));
+    setPagos((prev) => (prev.length === 1 ? [{ metodo: prev[0].metodo, monto: nuevo }] : prev));
+  }
+
+  function alternarItem(id) {
+    const nueva = seleccion.includes(id)
+      ? seleccion.filter((x) => x !== id)
+      : [...seleccion, id];
+    setSeleccion(nueva);
+    reajustarPagos(nueva, parcial);
+  }
+
+  function cambiarModo(esParcialNuevo) {
+    setParcial(esParcialNuevo);
+    const nuevaSeleccion = esParcialNuevo ? [] : itemsPedido.map((i) => i.id);
+    setSeleccion(nuevaSeleccion);
+    reajustarPagos(nuevaSeleccion, esParcialNuevo);
+  }
 
   function cambiarPago(idx, cambios) {
     setPagos((prev) => prev.map((p, i) => (i === idx ? { ...p, ...cambios } : p)));
@@ -37,28 +74,56 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
     }
     setGuardando(true);
     try {
-      const items = (pedido.items || []).map((i) => ({ ...i, enviado: true, listo: true }));
+      const itemsCobrados = itemsCobro.map((i) => ({ ...i, enviado: true, listo: true }));
       const pagosCobrados = pagos.map((p) => ({
         metodo: p.metodo,
         monto: Math.round(Number(p.monto)),
       }));
 
-      const escrituras = [
-        actualizar("pedidos", pedido.id, {
-          estado: ESTADO_PEDIDO.COBRADO,
-          items,
-          total,
-          pagos: pagosCobrados,
-          cobradoEn: ahora(),
-        }),
-        actualizar("mesas", pedido.mesaId, {
-          estado: ESTADO_MESA.LIBRE,
-          pedidoActivoId: null,
-        }),
-      ];
+      let idVenta = pedido.id;
+      const escrituras = [];
 
-      // Descuento de inventario por cada venta
-      for (const item of pedido.items || []) {
+      if (esParcial) {
+        // Cobro parcial: se crea una venta nueva con lo cobrado y la cuenta original queda con lo que falta
+        idVenta = nuevoIdDoc();
+        escrituras.push(
+          crear("pedidos", idVenta, {
+            mesaId: pedido.mesaId,
+            mesaNumero: pedido.mesaNumero,
+            salonId: pedido.salonId ?? null,
+            empleadoUid: pedido.empleadoUid ?? null,
+            empleadoNombre: pedido.empleadoNombre || "",
+            estado: ESTADO_PEDIDO.COBRADO,
+            items: itemsCobrados,
+            total,
+            pagos: pagosCobrados,
+            creadoEn: ahora(),
+            cobradoEn: ahora(),
+            cobroParcialDe: pedido.id,
+          }),
+          actualizar("pedidos", pedido.id, {
+            items: restantes,
+            total: Math.round(sumar(restantes)),
+          })
+        );
+      } else {
+        escrituras.push(
+          actualizar("pedidos", pedido.id, {
+            estado: ESTADO_PEDIDO.COBRADO,
+            items: itemsCobrados,
+            total,
+            pagos: pagosCobrados,
+            cobradoEn: ahora(),
+          }),
+          actualizar("mesas", pedido.mesaId, {
+            estado: ESTADO_MESA.LIBRE,
+            pedidoActivoId: null,
+          })
+        );
+      }
+
+      // Descuento de inventario solo por lo que se cobró
+      for (const item of itemsCobro) {
         const prod = productos.find((p) => p.id === item.productoId);
         if (!prod) continue;
 
@@ -73,7 +138,7 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
                 productoId: ing.productoId,
                 cantidad: -cantidad,
                 motivo: "venta",
-                pedidoId: pedido.id,
+                pedidoId: idVenta,
                 fecha: ahora(),
               })
             );
@@ -87,7 +152,7 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
               productoId: prod.id,
               cantidad: -item.cantidad,
               motivo: "venta",
-              pedidoId: pedido.id,
+              pedidoId: idVenta,
               fecha: ahora(),
             })
           );
@@ -95,11 +160,12 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
       }
 
       await confirmar(escrituras);
-      // Se muestra el ticket con los datos ya cobrados; al cerrar se vuelve al salón
+      // Se muestra el ticket con los datos ya cobrados; al cerrar se vuelve a la comanda o al salón
       setCobrado({
-        pedido: { ...pedido, items, total },
+        pedido: { ...pedido, id: idVenta, items: itemsCobrados, total },
         pagos: pagosCobrados,
         fecha: new Date(),
+        parcial: esParcial,
       });
     } catch (e) {
       setError("No se pudo cobrar: " + e.message);
@@ -113,7 +179,7 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
         pedido={cobrado.pedido}
         pagos={cobrado.pagos}
         fecha={cobrado.fecha}
-        onCerrar={onCerrado}
+        onCerrar={() => onCerrado({ parcial: cobrado.parcial })}
       />
     );
   }
@@ -122,6 +188,44 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
     <div className="modal-fondo">
       <div className="modal card">
         <h2>Cobrar mesa {pedido.mesaNumero}</h2>
+
+        <div className="chips">
+          <button
+            className={"chip" + (!parcial ? " activo" : "")}
+            onClick={() => cambiarModo(false)}
+          >
+            Cobrar todo
+          </button>
+          <button
+            className={"chip" + (parcial ? " activo" : "")}
+            onClick={() => cambiarModo(true)}
+          >
+            Cobro parcial
+          </button>
+        </div>
+
+        {parcial && (
+          <div>
+            <h3>Elegí lo que se cobra ahora</h3>
+            {itemsPedido.length === 0 && <p>No hay productos en la cuenta.</p>}
+            {itemsPedido.map((i) => (
+              <div
+                key={i.id}
+                className={"item" + (seleccion.includes(i.id) ? " sel" : "")}
+                onClick={() => alternarItem(i.id)}
+              >
+                <div className="item-linea">
+                  <span>{i.cantidad} × {i.nombre}</span>
+                  <span>{colones(i.precio * i.cantidad)}</span>
+                </div>
+              </div>
+            ))}
+            {parcial && restantes.length === 0 && itemsCobro.length > 0 && (
+              <small>Elegiste todos los productos: se cobra la cuenta completa.</small>
+            )}
+          </div>
+        )}
+
         <p className="total-grande">Total {colones(total)}</p>
 
         {pagos.map((p, idx) => (
@@ -156,12 +260,16 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
           {falta > 0 ? `Faltan ${colones(falta)}` : falta < 0 ? `Sobran ${colones(-falta)}` : "Cuadra"}
         </p>
 
+        {esParcial && (
+          <small>Queda en la cuenta: {colones(sumar(restantes))}</small>
+        )}
+
         {error && <p className="error">{error}</p>}
 
         <div className="acciones">
           <button className="btn" onClick={onCancelar} disabled={guardando}>Cancelar</button>
           <button className="btn primary" disabled={!cuadra || guardando} onClick={cobrar}>
-            {guardando ? "Cobrando..." : "Cobrar"}
+            {guardando ? "Cobrando..." : esParcial ? "Cobrar parcial" : "Cobrar"}
           </button>
         </div>
       </div>
