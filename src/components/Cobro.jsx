@@ -1,20 +1,15 @@
 import { useState } from "react";
-import {
-  collection,
-  doc,
-  increment,
-  serverTimestamp,
-  writeBatch,
-} from "firebase/firestore";
-import { db } from "../firebase.js";
+import { actualizar, ahora, confirmar, crear, incremento, nuevoIdDoc } from "../lib/api.js";
 import { ESTADO_MESA, ESTADO_PEDIDO, METODOS_PAGO } from "../lib/constants.js";
 import { colones } from "../lib/format.js";
+import Ticket from "./Ticket.jsx";
 
 export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
   const total = Math.round(Number(pedido.total) || 0);
   const [pagos, setPagos] = useState([{ metodo: "efectivo", monto: total }]);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [cobrado, setCobrado] = useState(null); // { pedido, pagos, fecha } tras cobrar
 
   const suma = pagos.reduce((s, p) => s + (Number(p.monto) || 0), 0);
   const falta = total - Math.round(suma);
@@ -42,21 +37,25 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
     }
     setGuardando(true);
     try {
-      const batch = writeBatch(db);
       const items = (pedido.items || []).map((i) => ({ ...i, enviado: true, listo: true }));
+      const pagosCobrados = pagos.map((p) => ({
+        metodo: p.metodo,
+        monto: Math.round(Number(p.monto)),
+      }));
 
-      batch.update(doc(db, "pedidos", pedido.id), {
-        estado: ESTADO_PEDIDO.COBRADO,
-        items,
-        total,
-        pagos: pagos.map((p) => ({ metodo: p.metodo, monto: Math.round(Number(p.monto)) })),
-        cobradoEn: serverTimestamp(),
-      });
-
-      batch.update(doc(db, "mesas", pedido.mesaId), {
-        estado: ESTADO_MESA.LIBRE,
-        pedidoActivoId: null,
-      });
+      const escrituras = [
+        actualizar("pedidos", pedido.id, {
+          estado: ESTADO_PEDIDO.COBRADO,
+          items,
+          total,
+          pagos: pagosCobrados,
+          cobradoEn: ahora(),
+        }),
+        actualizar("mesas", pedido.mesaId, {
+          estado: ESTADO_MESA.LIBRE,
+          pedidoActivoId: null,
+        }),
+      ];
 
       // Descuento de inventario por cada venta
       for (const item of pedido.items || []) {
@@ -66,37 +65,57 @@ export default function Cobro({ pedido, productos, onCerrado, onCancelar }) {
         if (prod.ingredientes?.length) {
           for (const ing of prod.ingredientes) {
             const cantidad = Number(ing.cantidad) * item.cantidad;
-            batch.update(doc(db, "productos", ing.productoId), {
-              stockActual: increment(-cantidad),
-            });
-            batch.set(doc(collection(db, "movimientos")), {
-              productoId: ing.productoId,
-              cantidad: -cantidad,
-              motivo: "venta",
-              pedidoId: pedido.id,
-              fecha: serverTimestamp(),
-            });
+            escrituras.push(
+              actualizar("productos", ing.productoId, { stockActual: incremento(-cantidad) })
+            );
+            escrituras.push(
+              crear("movimientos", nuevoIdDoc(), {
+                productoId: ing.productoId,
+                cantidad: -cantidad,
+                motivo: "venta",
+                pedidoId: pedido.id,
+                fecha: ahora(),
+              })
+            );
           }
         } else if (prod.controlaStock) {
-          batch.update(doc(db, "productos", prod.id), {
-            stockActual: increment(-item.cantidad),
-          });
-          batch.set(doc(collection(db, "movimientos")), {
-            productoId: prod.id,
-            cantidad: -item.cantidad,
-            motivo: "venta",
-            pedidoId: pedido.id,
-            fecha: serverTimestamp(),
-          });
+          escrituras.push(
+            actualizar("productos", prod.id, { stockActual: incremento(-item.cantidad) })
+          );
+          escrituras.push(
+            crear("movimientos", nuevoIdDoc(), {
+              productoId: prod.id,
+              cantidad: -item.cantidad,
+              motivo: "venta",
+              pedidoId: pedido.id,
+              fecha: ahora(),
+            })
+          );
         }
       }
 
-      await batch.commit();
-      onCerrado();
+      await confirmar(escrituras);
+      // Se muestra el ticket con los datos ya cobrados; al cerrar se vuelve al salón
+      setCobrado({
+        pedido: { ...pedido, items, total },
+        pagos: pagosCobrados,
+        fecha: new Date(),
+      });
     } catch (e) {
       setError("No se pudo cobrar: " + e.message);
       setGuardando(false);
     }
+  }
+
+  if (cobrado) {
+    return (
+      <Ticket
+        pedido={cobrado.pedido}
+        pagos={cobrado.pagos}
+        fecha={cobrado.fecha}
+        onCerrar={onCerrado}
+      />
+    );
   }
 
   return (
