@@ -8,12 +8,14 @@ import Comanda from "./pages/Comanda.jsx";
 import Cocina from "./pages/Cocina.jsx";
 import Caja from "./pages/Caja.jsx";
 import Productos from "./pages/Productos.jsx";
+import Compras from "./pages/Compras.jsx";
 
 const VISTAS = {
   salon: { label: "Salón", roles: [ROL.ADMIN, ROL.MESERO, ROL.CAJA] },
   cocina: { label: "Cocina / Barra", roles: [ROL.ADMIN, ROL.COCINA, ROL.BARRA] },
   caja: { label: "Caja", roles: [ROL.ADMIN, ROL.CAJA] },
   productos: { label: "Productos", roles: [ROL.ADMIN] },
+  compras: { label: "Compras", roles: [ROL.ADMIN] },
 };
 
 // Qué zonas ve cada rol en la pantalla de cocina
@@ -182,6 +184,7 @@ export default function App() {
         {vistaActual === "cocina" && <Cocina zonas={ZONAS_POR_ROL[staff.rol] || []} />}
         {vistaActual === "caja" && <Caja staff={staff} />}
         {vistaActual === "productos" && <Productos />}
+        {vistaActual === "compras" && <Compras staff={staff} />}
       </main>
     </div>
   );
