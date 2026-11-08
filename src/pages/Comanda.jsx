@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { actualizar, confirmar, consultar, leerDoc, usePolling } from "../lib/api.js";
-import { ESTADO_MESA, ESTADO_PEDIDO, TIPO_PRODUCTO } from "../lib/constants.js";
+import { actualizar, ahora, confirmar, consultar, leerDoc, usePolling } from "../lib/api.js";
+import { ESTADO_MESA, ESTADO_PEDIDO, ROL, TIPO_PRODUCTO } from "../lib/constants.js";
 import { colones, nuevoId } from "../lib/format.js";
 import Cobro from "../components/Cobro.jsx";
+import Ticket from "../components/Ticket.jsx";
+import Juntar from "../components/Juntar.jsx";
 
-export default function Comanda({ pedidoId, onVolver }) {
+export default function Comanda({ pedidoId, onVolver, staff }) {
   const [pedido, setPedido] = useState(null);
   const [seleccionado, setSeleccionado] = useState(null);
   const [busqueda, setBusqueda] = useState("");
   const [cobrando, setCobrando] = useState(false);
+  const [juntando, setJuntando] = useState(false);
+  const [preticket, setPreticket] = useState(false);
   const [error, setError] = useState("");
   // Cantidad de guardados en curso: mientras haya uno, no se pisa el pedido local con datos viejos
   const guardandoRef = useRef(0);
@@ -45,6 +49,7 @@ export default function Comanda({ pedidoId, onVolver }) {
   const hayNuevos = items.some((i) => !i.enviado);
   const hayEnviados = items.some((i) => i.enviado);
   const sel = items.find((i) => i.id === seleccionado);
+  const esAdmin = staff?.rol === ROL.ADMIN;
 
   const productosFiltrados = productos.filter((p) =>
     p.nombre.toLowerCase().includes(busqueda.toLowerCase())
@@ -135,8 +140,43 @@ export default function Comanda({ pedidoId, onVolver }) {
     }
   }
 
+  // Solo admin: borra la venta aunque ya esté en cocina, dejando motivo y quién la borró
+  async function borrarVenta() {
+    const motivo = window.prompt("Motivo para borrar la venta (queda registrado):", "");
+    if (motivo === null) return;
+    if (!motivo.trim()) {
+      setError("Escribí un motivo para borrar la venta.");
+      return;
+    }
+    try {
+      await confirmar([
+        actualizar("pedidos", pedidoId, {
+          estado: ESTADO_PEDIDO.ANULADO,
+          anuladoPor: staff.uid,
+          anuladoPorNombre: staff.nombre || "",
+          anuladoEn: ahora(),
+          motivoAnulacion: motivo.trim(),
+        }),
+        actualizar("mesas", pedido.mesaId, { estado: ESTADO_MESA.LIBRE, pedidoActivoId: null }),
+      ]);
+      onVolver();
+    } catch (e) {
+      setError("No se pudo borrar la venta: " + e.message);
+    }
+  }
+
+  // Tras un cobro parcial la comanda sigue abierta con lo que falta; tras un cobro total se vuelve al salón
+  function alCerrarCobro(resultado) {
+    if (resultado?.parcial) {
+      setCobrando(false);
+      pedidoQ.recargar();
+      return;
+    }
+    onVolver();
+  }
+
   return (
-    <div className="app">
+    <div className="app-comanda">
       <header className="topbar">
         <button className="btn" onClick={onVolver}>← Salón</button>
         <strong>Mesa {pedido.mesaNumero}</strong>
@@ -222,7 +262,7 @@ export default function Comanda({ pedidoId, onVolver }) {
                   </button>
                 ))}
                 {observaciones.length === 0 && (
-                  <small>No hay observaciones. Agregalas en la pestaña Productos.</small>
+                  <small>No hay observaciones. Agregalas en la pestaña Menú.</small>
                 )}
               </div>
             </div>
@@ -239,9 +279,20 @@ export default function Comanda({ pedidoId, onVolver }) {
           <button className="btn bloque" disabled={items.length === 0} onClick={() => setCobrando(true)}>
             Cobrar
           </button>
+          <button className="btn bloque" disabled={items.length === 0} onClick={() => setPreticket(true)}>
+            Preticket
+          </button>
+          <button className="btn bloque" disabled={items.length === 0} onClick={() => setJuntando(true)}>
+            Juntar con otra mesa
+          </button>
           {!hayEnviados && (
             <button className="btn peligro bloque" onClick={liberarMesa}>
               Liberar mesa
+            </button>
+          )}
+          {esAdmin && (
+            <button className="btn peligro bloque" onClick={borrarVenta}>
+              Borrar venta
             </button>
           )}
         </section>
@@ -251,8 +302,25 @@ export default function Comanda({ pedidoId, onVolver }) {
         <Cobro
           pedido={pedido}
           productos={productos}
-          onCerrado={onVolver}
+          onCerrado={alCerrarCobro}
           onCancelar={() => setCobrando(false)}
+        />
+      )}
+
+      {preticket && (
+        <Ticket
+          pedido={pedido}
+          fecha={new Date()}
+          precuenta
+          onCerrar={() => setPreticket(false)}
+        />
+      )}
+
+      {juntando && (
+        <Juntar
+          pedido={pedido}
+          onCancelar={() => setJuntando(false)}
+          onJuntado={onVolver}
         />
       )}
     </div>
