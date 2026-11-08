@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { consultar } from "../lib/api.js";
 import { METODOS_PAGO, TIPO_PRODUCTO } from "../lib/constants.js";
-import { colones, horaCorta } from "../lib/format.js";
+import { colones, enlaceCorreo, horaCorta, tablaTexto } from "../lib/format.js";
+import { useNegocio } from "../lib/negocio.js";
 
 const hoyIso = () => {
   const d = new Date();
@@ -206,6 +207,7 @@ const REPORTES = [
 ];
 
 export default function Listados() {
+  const negocio = useNegocio();
   const [desde, setDesde] = useState(hoyIso());
   const [hasta, setHasta] = useState(hoyIso());
   const [reporteId, setReporteId] = useState(REPORTES[0].id);
@@ -245,6 +247,15 @@ export default function Listados() {
   }
 
   const resultado = datos ? reporte.armar(datos) : null;
+
+  const correo = resultado
+    ? enlaceCorreo(
+        `${negocio.nombre} · ${reporte.label} (${desde} a ${hasta})`,
+        `${reporte.label}\nDel ${desde} al ${hasta}\n\n` +
+          tablaTexto(resultado.columnas, resultado.filas) +
+          `\n\n${negocio.leyenda}`
+      )
+    : null;
 
   return (
     <section className="stack">
@@ -287,7 +298,10 @@ export default function Listados() {
       <div className="card listado-imprimible">
         <div className="no-imprimir" style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>{reporte.label}</h3>
-          <button className="btn" disabled={!resultado} onClick={() => window.print()}>Imprimir</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <a className="btn" href={correo || undefined} aria-disabled={!resultado}>Correo</a>
+            <button className="btn" disabled={!resultado} onClick={() => window.print()}>Imprimir</button>
+          </div>
         </div>
 
         {!resultado && <p style={{ marginTop: 12 }}>Tocá "Generar datos" para ver el reporte.</p>}
