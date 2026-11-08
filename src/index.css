@@ -949,6 +949,140 @@ select {
   font-family: var(--font-mono);
 }
 
+/* ---------- Plano del salón (cuadrícula con barra de estado) ---------- */
+
+.plano-panel {
+  margin-top: 16px;
+  background: var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  box-shadow: var(--sombra);
+}
+
+.plano-titulo {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--flame-600);
+  margin-bottom: 10px;
+}
+
+.plano-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 12px;
+}
+
+.mesa-tile {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid rgba(36, 28, 21, 0.1);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--sombra);
+}
+
+.mesa-tile__cuerpo {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 84px;
+  padding: 10px 6px;
+  border: none;
+  background: transparent;
+  color: var(--ink-900);
+  text-align: center;
+}
+
+.mesa-tile__cuerpo:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.mesa-tile__cuerpo:hover:not(:disabled) {
+  background: var(--paper);
+}
+
+.mesa-tile__num {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.mesa-tile__info {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-600);
+  line-height: 1.2;
+}
+
+.mesa-tile__barra {
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.mesa-tile .mesa-flechas {
+  padding: 6px;
+  background: var(--paper);
+  border-top: 1px solid rgba(36, 28, 21, 0.08);
+}
+
+/* Color de la barra inferior según estado */
+.barra-libre { background: var(--status-green); }
+.barra-ocupada { background: var(--red-500); }
+.barra-reservada { background: var(--ember-400); }
+.barra-otro_terminal { background: #5b57c9; }
+.barra-t-ok { background: var(--status-green); }
+.barra-t-alerta { background: var(--ember-400); }
+.barra-t-tarde { background: var(--red-500); }
+
+.plano-leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(36, 28, 21, 0.18);
+}
+
+.ley {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-600);
+}
+
+.ley::before {
+  content: "";
+  width: 22px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--ink-400);
+}
+
+.ley-libre::before { background: var(--status-green); }
+.ley-ocupada::before { background: var(--red-500); }
+.ley-reservada::before { background: var(--ember-400); }
+.ley-otro_terminal::before { background: #5b57c9; }
+
+.salon-acciones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
 /* ---------- Controles del salón ---------- */
 
 .salon-controles {
