@@ -5,7 +5,20 @@ import { horaCorta } from "../lib/format.js";
 
 const TECLAS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "OK"];
 
-// Fichaje de entrada y salida con PIN, historial y, para el admin, asignación de PIN
+const PUESTOS = [
+  { id: "mesero", label: "Mesero" },
+  { id: "cocina", label: "Cocina" },
+  { id: "barra", label: "Barra" },
+  { id: "caja", label: "Caja" },
+  { id: "admin", label: "Administrador" },
+];
+
+const nombrePuesto = (id) => PUESTOS.find((p) => p.id === id)?.label || id || "—";
+const nombreCompleto = (e) => `${e.nombre || ""} ${e.apellidos || ""}`.trim();
+
+const FORM_VACIO = { nombre: "", apellidos: "", numero: "", puesto: "mesero", pin: "" };
+
+// Fichaje de entrada y salida con PIN, historial y, para el admin, alta de empleados
 export default function Personal({ staff }) {
   const esAdmin = staff?.rol === ROL.ADMIN;
   const [tipo, setTipo] = useState("entrada");
@@ -14,23 +27,24 @@ export default function Personal({ staff }) {
   const [mensaje, setMensaje] = useState({ tipo: "", texto: "" });
   const [guardando, setGuardando] = useState(false);
   const [filtroEmpleado, setFiltroEmpleado] = useState("");
+  const [form, setForm] = useState(FORM_VACIO);
   const [pinesNuevos, setPinesNuevos] = useState({});
 
-  const empleadosQ = usePolling(() => consultar("staff", { where: [["activo", "==", true]] }), [], 60000);
+  const empleadosQ = usePolling(() => consultar("empleados", { orden: [["numeroEmpleado"]] }), [], 60000);
   const fichajesQ = usePolling(
     () => consultar("fichajes", { orden: [["fecha", "desc"]], limite: 100 }),
     [],
     15000
   );
 
-  const empleados = [...(empleadosQ.datos || [])].sort((a, b) =>
-    (a.nombre || "").localeCompare(b.nombre || "")
-  );
-  const empleado = empleados.find((e) => e.id === seleccionado);
+  const todos = empleadosQ.datos || [];
+  const activos = todos.filter((e) => e.activo !== false);
+  const empleado = activos.find((e) => e.id === seleccionado);
   const fichajes = fichajesQ.datos || [];
+  const siguienteNumero = Math.max(0, ...todos.map((e) => Number(e.numeroEmpleado) || 0)) + 1;
 
   const historial = useMemo(
-    () => fichajes.filter((f) => !filtroEmpleado || f.empleadoUid === filtroEmpleado),
+    () => fichajes.filter((f) => !filtroEmpleado || f.empleadoId === filtroEmpleado),
     [fichajes, filtroEmpleado]
   );
 
@@ -55,26 +69,27 @@ export default function Personal({ staff }) {
     try {
       // Se consulta el último fichaje al momento para no depender de la actualización periódica
       const recientes = await consultar("fichajes", { orden: [["fecha", "desc"]], limite: 200 });
-      const ultimo = recientes.find((f) => f.empleadoUid === empleado.id);
+      const ultimo = recientes.find((f) => f.empleadoId === empleado.id);
 
       if (tipo === "entrada" && ultimo?.tipo === "entrada") {
-        throw new Error(`${empleado.nombre} ya tiene una entrada abierta. Marcá la salida primero.`);
+        throw new Error(`${nombreCompleto(empleado)} ya tiene una entrada abierta. Marcá la salida primero.`);
       }
       if (tipo === "salida" && (!ultimo || ultimo.tipo === "salida")) {
-        throw new Error(`${empleado.nombre} no tiene una entrada abierta.`);
+        throw new Error(`${nombreCompleto(empleado)} no tiene una entrada abierta.`);
       }
 
       await confirmar([
         crear("fichajes", nuevoIdDoc(), {
-          empleadoUid: empleado.id,
-          empleadoNombre: empleado.nombre || "",
+          empleadoId: empleado.id,
+          empleadoNombre: nombreCompleto(empleado),
+          numeroEmpleado: Number(empleado.numeroEmpleado) || null,
           tipo,
           fecha: ahora(),
         }),
       ]);
       setMensaje({
         tipo: "ok",
-        texto: `${tipo === "entrada" ? "Entrada" : "Salida"} marcada para ${empleado.nombre}.`,
+        texto: `${tipo === "entrada" ? "Entrada" : "Salida"} marcada para ${nombreCompleto(empleado)}.`,
       });
       setPin("");
       setSeleccionado(null);
@@ -86,18 +101,67 @@ export default function Personal({ staff }) {
     }
   }
 
+  async function crearEmpleado(e) {
+    e.preventDefault();
+    setMensaje({ tipo: "", texto: "" });
+    const numero = Number(form.numero || siguienteNumero);
+    if (!form.nombre.trim() || !form.apellidos.trim()) {
+      return setMensaje({ tipo: "error", texto: "Poné el nombre y los apellidos." });
+    }
+    if (!Number.isInteger(numero) || numero <= 0) {
+      return setMensaje({ tipo: "error", texto: "El número de empleado debe ser un entero mayor que cero." });
+    }
+    if (todos.some((x) => Number(x.numeroEmpleado) === numero)) {
+      return setMensaje({ tipo: "error", texto: `Ya existe un empleado con el número ${numero}.` });
+    }
+    if (!/^\d{4,8}$/.test(form.pin)) {
+      return setMensaje({ tipo: "error", texto: "El PIN debe tener entre 4 y 8 números." });
+    }
+
+    setGuardando(true);
+    try {
+      await confirmar([
+        crear("empleados", nuevoIdDoc(), {
+          nombre: form.nombre.trim(),
+          apellidos: form.apellidos.trim(),
+          numeroEmpleado: numero,
+          puesto: form.puesto,
+          pin: form.pin,
+          activo: true,
+          creadoEn: ahora(),
+        }),
+      ]);
+      setForm(FORM_VACIO);
+      setMensaje({ tipo: "ok", texto: "Empleado agregado." });
+      empleadosQ.recargar();
+    } catch (err) {
+      setMensaje({ tipo: "error", texto: "No se pudo agregar: " + err.message });
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   async function guardarPin(emp) {
     const nuevo = (pinesNuevos[emp.id] || "").trim();
     if (!/^\d{4,8}$/.test(nuevo)) {
       return setMensaje({ tipo: "error", texto: "El PIN debe tener entre 4 y 8 números." });
     }
     try {
-      await confirmar([actualizar("staff", emp.id, { pin: nuevo })]);
+      await confirmar([actualizar("empleados", emp.id, { pin: nuevo })]);
       setPinesNuevos((p) => ({ ...p, [emp.id]: "" }));
-      setMensaje({ tipo: "ok", texto: `PIN guardado para ${emp.nombre}.` });
+      setMensaje({ tipo: "ok", texto: `PIN guardado para ${nombreCompleto(emp)}.` });
       empleadosQ.recargar();
-    } catch (e) {
-      setMensaje({ tipo: "error", texto: "No se pudo guardar el PIN: " + e.message });
+    } catch (err) {
+      setMensaje({ tipo: "error", texto: "No se pudo guardar el PIN: " + err.message });
+    }
+  }
+
+  async function cambiarActivo(emp) {
+    try {
+      await confirmar([actualizar("empleados", emp.id, { activo: emp.activo === false })]);
+      empleadosQ.recargar();
+    } catch (err) {
+      setMensaje({ tipo: "error", texto: "No se pudo cambiar: " + err.message });
     }
   }
 
@@ -120,8 +184,11 @@ export default function Personal({ staff }) {
 
         <h3>Seleccioná el empleado</h3>
         {empleadosQ.error && <p className="error">{empleadosQ.error}</p>}
+        {empleadosQ.datos && activos.length === 0 && (
+          <p>Todavía no hay empleados. El admin los puede agregar abajo.</p>
+        )}
         <div className="empleados-grid">
-          {empleados.map((e) => (
+          {activos.map((e) => (
             <button
               key={e.id}
               className={"empleado" + (seleccionado === e.id ? " sel" : "")}
@@ -131,13 +198,14 @@ export default function Personal({ staff }) {
                 setMensaje({ tipo: "", texto: "" });
               }}
             >
-              {e.nombre || "Sin nombre"}
+              <span className="empleado__numero">#{e.numeroEmpleado}</span>
+              {nombreCompleto(e)}
             </button>
           ))}
         </div>
 
         <div className="pin-caja">
-          <span>Empleado: <strong>{empleado?.nombre || "—"}</strong></span>
+          <span>Empleado: <strong>{empleado ? nombreCompleto(empleado) : "—"}</strong></span>
           <span>PIN: <strong>{"•".repeat(pin.length) || "—"}</strong></span>
         </div>
 
@@ -163,8 +231,8 @@ export default function Personal({ staff }) {
         <h3>Historial de fichajes</h3>
         <select value={filtroEmpleado} onChange={(e) => setFiltroEmpleado(e.target.value)}>
           <option value="">Todos los empleados</option>
-          {empleados.map((e) => (
-            <option key={e.id} value={e.id}>{e.nombre}</option>
+          {todos.map((e) => (
+            <option key={e.id} value={e.id}>#{e.numeroEmpleado} {nombreCompleto(e)}</option>
           ))}
         </select>
         {historial.length === 0 && <p style={{ marginTop: 12 }}>Todavía no hay fichajes.</p>}
@@ -173,6 +241,7 @@ export default function Personal({ staff }) {
             <thead>
               <tr>
                 <th>Hora</th>
+                <th>Número</th>
                 <th>Empleado</th>
                 <th>Movimiento</th>
               </tr>
@@ -181,6 +250,7 @@ export default function Personal({ staff }) {
               {historial.map((f) => (
                 <tr key={f.id}>
                   <td>{horaCorta(f.fecha)}</td>
+                  <td>{f.numeroEmpleado ?? "—"}</td>
                   <td>{f.empleadoNombre}</td>
                   <td>{f.tipo === "entrada" ? "Entrada" : "Salida"}</td>
                 </tr>
@@ -192,10 +262,62 @@ export default function Personal({ staff }) {
 
       {esAdmin && (
         <div className="card">
-          <h3>PIN de cada empleado</h3>
-          {empleados.map((e) => (
+          <h3>Agregar empleado</h3>
+          <form onSubmit={crearEmpleado} className="formulario">
+            <input
+              placeholder="Nombre"
+              value={form.nombre}
+              onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+              required
+            />
+            <input
+              placeholder="Apellidos"
+              value={form.apellidos}
+              onChange={(e) => setForm({ ...form, apellidos: e.target.value })}
+              required
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              placeholder={`Número de empleado (${siguienteNumero})`}
+              value={form.numero}
+              onChange={(e) => setForm({ ...form, numero: e.target.value })}
+            />
+            <select value={form.puesto} onChange={(e) => setForm({ ...form, puesto: e.target.value })}>
+              {PUESTOS.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
+            <input
+              type="password"
+              inputMode="numeric"
+              placeholder="PIN (4 a 8 números)"
+              value={form.pin}
+              onChange={(e) => setForm({ ...form, pin: e.target.value })}
+              required
+            />
+            <button className="btn primary" disabled={guardando}>
+              {guardando ? "Guardando..." : "Agregar empleado"}
+            </button>
+          </form>
+        </div>
+      )}
+
+      {esAdmin && (
+        <div className="card">
+          <h3>Empleados</h3>
+          {todos.length === 0 && <p>Todavía no hay empleados.</p>}
+          {todos.map((e) => (
             <div key={e.id} className="pin-fila">
-              <span>{e.nombre} {e.pin ? "· tiene PIN" : "· sin PIN"}</span>
+              <span>
+                <strong>#{e.numeroEmpleado}</strong> {nombreCompleto(e)}
+                <br />
+                <small>
+                  {nombrePuesto(e.puesto)} · {e.pin ? "tiene PIN" : "sin PIN"}
+                  {e.activo === false ? " · inactivo" : ""}
+                </small>
+              </span>
               <input
                 type="password"
                 inputMode="numeric"
@@ -203,7 +325,12 @@ export default function Personal({ staff }) {
                 value={pinesNuevos[e.id] || ""}
                 onChange={(ev) => setPinesNuevos((p) => ({ ...p, [e.id]: ev.target.value }))}
               />
-              <button className="btn" onClick={() => guardarPin(e)}>Guardar</button>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn" onClick={() => guardarPin(e)}>PIN</button>
+                <button className="btn" onClick={() => cambiarActivo(e)}>
+                  {e.activo === false ? "Activar" : "Desactivar"}
+                </button>
+              </div>
             </div>
           ))}
         </div>
