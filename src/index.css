@@ -3,7 +3,6 @@
    Identidad 100% original creada por KCN Keny Chinchilla Navarro: papel cálido, carbón,
    acentos de llama y tarjetas tipo cristal.
    ========================================================================== */
-
 :root {
   --char-950: #171310;
   --char-900: #221b16;
@@ -1334,5 +1333,107 @@ select {
 @media (max-width: 560px) {
   .pin-fila {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Productos: color y tarifa ---------- */
+
+.colores {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.color-op {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(36, 28, 21, 0.25);
+  padding: 0;
+}
+
+.color-op.sel {
+  box-shadow: 0 0 0 3px var(--char-950);
+}
+
+.color-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* ---------- Comanda por zona (impresión) ---------- */
+
+.comanda-imprimible {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: #000;
+  background: #fff;
+  padding: 8px;
+  width: 72mm;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.comanda-imprimible .centro {
+  text-align: center;
+}
+
+.comanda-imprimible hr {
+  border: none;
+  border-top: 1px dashed #000;
+  margin: 6px 0;
+}
+
+.cimp-item {
+  padding: 4px 0;
+  border-bottom: 1px dotted #999;
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .comanda-imprimible,
+  .comanda-imprimible * {
+    visibility: visible;
+  }
+  .comanda-imprimible {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 72mm;
+    margin: 0;
+  }
+  .no-imprimir {
+    display: none !important;
+  }
+}
+
+/* ---------- Listados: impresión en hoja ---------- */
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .listado-imprimible,
+  .listado-imprimible * {
+    visibility: visible;
+  }
+  .listado-imprimible {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    box-shadow: none;
+    background: #fff;
+  }
+  .no-imprimir {
+    display: none !important;
   }
 }
