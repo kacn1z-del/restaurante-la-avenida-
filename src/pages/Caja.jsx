@@ -1,13 +1,42 @@
 import { useEffect, useMemo, useState } from "react";
 import { ahora, confirmar, consultar, crear, nuevoIdDoc, usePolling } from "../lib/api.js";
-import { DENOMINACIONES_CRC, ESTADO_PEDIDO, METODOS_PAGO } from "../lib/constants.js";
+import { DENOMINACIONES, ESTADO_PEDIDO, METODOS_PAGO, MONEDAS } from "../lib/constants.js";
 import { colones, inicioDelDia } from "../lib/format.js";
+
+const SIMBOLO = { CRC: "₡", USD: "US$", EUR: "€" };
+const CLAVE_TERMINAL = "terminal_caja";
+
+function formatear(valor, moneda) {
+  if (moneda === "CRC") return colones(valor);
+  return `${SIMBOLO[moneda]}${(Number(valor) || 0).toFixed(2)}`;
+}
+
+function nombreDenominacion(valor, moneda) {
+  if (moneda === "CRC") return `₡${valor.toLocaleString("es-CR")}`;
+  return `${SIMBOLO[moneda]}${valor}`;
+}
 
 export default function Caja({ staff }) {
   const [desde, setDesde] = useState(inicioDelDia());
   const [conteo, setConteo] = useState({});
   const [mensaje, setMensaje] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [moneda, setMoneda] = useState("CRC");
+  const [terminal, setTerminal] = useState(() => {
+    try {
+      return localStorage.getItem(CLAVE_TERMINAL) || "1";
+    } catch {
+      return "1";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLAVE_TERMINAL, terminal);
+    } catch {
+      /* si el navegador no guarda datos, el número queda solo en pantalla */
+    }
+  }, [terminal]);
 
   // El turno empieza en el último cierre (o en el inicio del día si no hay)
   const cierreQ = usePolling(
@@ -45,12 +74,19 @@ export default function Caja({ staff }) {
     return { porMetodo, totalVentas, cantidad };
   }, [pedidosQ.datos, desde]);
 
-  const totalContado = DENOMINACIONES_CRC.reduce(
+  const denominaciones = DENOMINACIONES[moneda];
+  const totalContado = denominaciones.reduce(
     (s, d) => s + d * (Number(conteo[d]) || 0),
     0
   );
+  // La diferencia solo se compara con colones, porque las ventas se registran en colones
   const esperadoEfectivo = resumen.porMetodo.efectivo || 0;
   const diferencia = totalContado - esperadoEfectivo;
+
+  function cambiarMoneda(nueva) {
+    setMoneda(nueva);
+    setConteo({});
+  }
 
   async function cerrarCaja() {
     if (!confirm("¿Cerrar caja? Se guardará el conteo de este turno.")) return;
@@ -60,14 +96,16 @@ export default function Caja({ staff }) {
       await confirmar([
         crear("cierres", nuevoIdDoc(), {
           fecha: ahora(),
+          terminal: Number(terminal) || 1,
+          moneda,
           empleadoUid: staff.uid,
           empleadoNombre: staff.nombre || "",
           conteo: Object.fromEntries(
-            DENOMINACIONES_CRC.map((d) => [String(d), Number(conteo[d]) || 0])
+            denominaciones.map((d) => [String(d), Number(conteo[d]) || 0])
           ),
           totalContado,
-          esperadoEfectivo,
-          diferencia,
+          esperadoEfectivo: moneda === "CRC" ? esperadoEfectivo : null,
+          diferencia: moneda === "CRC" ? diferencia : null,
           totalVentas: resumen.totalVentas,
           porMetodo: resumen.porMetodo,
           cantidadPedidos: resumen.cantidad,
@@ -102,17 +140,40 @@ export default function Caja({ staff }) {
       </div>
 
       <div className="card">
-        <h2>Conteo de caja (colones)</h2>
-        <table className="tabla">
+        <h2>Conteo de caja</h2>
+
+        <div className="formulario">
+          <label>
+            <span className="check">Número de terminal</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              value={terminal}
+              onChange={(e) => setTerminal(e.target.value)}
+            />
+          </label>
+          <label>
+            <span className="check">Moneda del conteo</span>
+            <select value={moneda} onChange={(e) => cambiarMoneda(e.target.value)}>
+              {MONEDAS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <table className="tabla" style={{ marginTop: 12 }}>
           <tbody>
-            {DENOMINACIONES_CRC.map((d) => (
+            {denominaciones.map((d) => (
               <tr key={d}>
-                <td>₡{d.toLocaleString("es-CR")}</td>
+                <td>{nombreDenominacion(d, moneda)}</td>
                 <td>
                   <input
                     type="number"
-                    inputMode="numeric"
+                    inputMode="decimal"
                     min="0"
+                    step="any"
                     value={conteo[d] ?? ""}
                     onChange={(e) => setConteo({ ...conteo, [d]: e.target.value })}
                   />
@@ -122,11 +183,18 @@ export default function Caja({ staff }) {
           </tbody>
         </table>
 
-        <p>Total contado: <strong>{colones(totalContado)}</strong></p>
-        <p>Efectivo esperado: <strong>{colones(esperadoEfectivo)}</strong></p>
-        <p className={diferencia === 0 ? "ok" : "error"}>
-          Diferencia: {colones(diferencia)}
-        </p>
+        <p>Total contado: <strong>{formatear(totalContado, moneda)}</strong></p>
+
+        {moneda === "CRC" ? (
+          <>
+            <p>Efectivo esperado: <strong>{colones(esperadoEfectivo)}</strong></p>
+            <p className={diferencia === 0 ? "ok" : "error"}>
+              Diferencia: {colones(diferencia)}
+            </p>
+          </>
+        ) : (
+          <small>Las ventas se registran en colones, así que aquí no se compara la diferencia.</small>
+        )}
 
         {mensaje && <p>{mensaje}</p>}
         <button className="btn primary bloque" disabled={guardando} onClick={cerrarCaja}>
