@@ -13,9 +13,10 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Safari en iPhone a veces no logra abrir el canal de Firestore.
-// Esta opción hace que Firestore use long polling automáticamente.
+// Fuerza long polling en vez de WebChannel: en algunas redes móviles y en
+// Safari de iPhone el canal normal de Firestore no conecta y las lecturas se quedan colgadas.
 export const db = initializeFirestore(app, {
-  experimentalAutoDetectLongPolling: true,
+  experimentalForceLongPolling: true,
 });
+
 export const auth = getAuth(app);
