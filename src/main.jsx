@@ -52,4 +52,45 @@ class ErrorLimite extends React.Component {
     if (this.state.error) {
       const e = this.state.error;
       return (
-        
+        <Pantalla
+          titulo="Error al mostrar la app"
+          detalle={`${e?.message || String(e)}\n\n${e?.stack || ""}`}
+        />
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const faltan = REQUERIDAS.filter((k) => !import.meta.env[k]);
+
+if (faltan.length) {
+  raiz.render(
+    <Pantalla
+      titulo="Faltan variables de entorno en Vercel"
+      detalle={
+        "Agregalas en Settings → Environment Variables y luego hacé Redeploy:\n\n" +
+        faltan.join("\n")
+      }
+    />
+  );
+} else {
+  import("./App.jsx")
+    .then(({ default: App }) => {
+      raiz.render(
+        <React.StrictMode>
+          <ErrorLimite>
+            <App />
+          </ErrorLimite>
+        </React.StrictMode>
+      );
+    })
+    .catch((e) => {
+      raiz.render(
+        <Pantalla
+          titulo="Error al cargar la app"
+          detalle={`${e?.message || String(e)}\n\n${e?.stack || ""}`}
+        />
+      );
+    });
+}
