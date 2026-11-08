@@ -55,9 +55,7 @@ function Login() {
   return (
     <div className="login">
       <form className="card login-card" onSubmit={entrar}>
-        <div className="sidebar__brand" style={{ justifyContent: "center", padding: 0 }}>
-          <span className="sidebar__mark">LA</span>
-        </div>
+        <img className="login-logo" src="/logo.jpg" alt="La Avenida Restaurante" />
         <h1>La Avenida</h1>
         <p>Ingresá con tu cuenta del POS.</p>
         <input
@@ -179,7 +177,7 @@ export default function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <div className="sidebar__brand">
-          <span className="sidebar__mark">LA</span>
+          <img className="sidebar__logo" src="/logo.jpg" alt="La Avenida" />
           <div>
             <div className="sidebar__title">La Avenida</div>
             <div className="sidebar__subtitle">POS Restaurante</div>
